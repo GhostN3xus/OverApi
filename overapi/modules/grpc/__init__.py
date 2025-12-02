@@ -1,5 +1,5 @@
 """gRPC API module."""
 
-class GrpcScanner:
-    """Placeholder for gRPC scanner."""
-    pass
+from .scanner import GrpcScanner
+
+__all__ = ["GrpcScanner"]

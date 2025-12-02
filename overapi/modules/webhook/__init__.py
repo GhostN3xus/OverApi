@@ -1,5 +1,5 @@
 """Webhook API module."""
 
-class WebhookScanner:
-    """Placeholder for Webhook scanner."""
-    pass
+from .scanner import WebhookScanner
+
+__all__ = ["WebhookScanner"]
