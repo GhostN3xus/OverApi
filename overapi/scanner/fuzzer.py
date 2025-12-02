@@ -1,6 +1,6 @@
 """Intelligent fuzzer for API endpoints."""
 
-from typing import Dict, List, Any
+from typing import Dict, List, Any, Optional
 from urllib.parse import urljoin
 import time
 
@@ -13,10 +13,24 @@ from ..utils.wordlist_loader import WordlistLoader
 class Fuzzer:
     """Intelligent fuzzer for API testing."""
 
-    def __init__(self, logger: Logger = None):
-        """Initialize fuzzer."""
+    def __init__(self, logger: Logger = None, verify_ssl: bool = True,
+                 custom_ca_path: Optional[str] = None):
+        """
+        Initialize fuzzer with SSL configuration.
+
+        Args:
+            logger: Logger instance
+            verify_ssl: Verify SSL certificates (default: True)
+            custom_ca_path: Path to custom CA certificate bundle
+        """
         self.logger = logger or Logger(__name__)
-        self.http_client = HTTPClient(logger=self.logger)
+        self.verify_ssl = verify_ssl
+        self.custom_ca_path = custom_ca_path
+        self.http_client = HTTPClient(
+            logger=self.logger,
+            verify_ssl=verify_ssl,
+            custom_ca_path=custom_ca_path
+        )
         self.wordlist = WordlistLoader()
 
     def fuzz_endpoint(self, endpoint: Dict, config: Config) -> List[Dict]:

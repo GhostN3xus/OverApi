@@ -27,7 +27,8 @@ class SoapScanner:
             logger=self.logger,
             timeout=config.timeout,
             verify_ssl=config.verify_ssl,
-            proxy=config.proxy.get_proxies() if config.proxy else None
+            proxy=config.proxy.get_proxies() if config.proxy else None,
+            custom_ca_path=config.custom_ca_path
         )
 
     def discover_methods(self) -> List[Dict[str, Any]]:

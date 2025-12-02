@@ -27,9 +27,17 @@ class Scanner:
         """
         self.config = config
         self.logger = logger or Logger(__name__)
-        self.detector = APIDetector(self.logger)
+        self.detector = APIDetector(
+            logger=self.logger,
+            verify_ssl=config.verify_ssl,
+            custom_ca_path=config.custom_ca_path
+        )
         self.security_tester = SecurityTester(self.logger)
-        self.fuzzer = Fuzzer(self.logger)
+        self.fuzzer = Fuzzer(
+            logger=self.logger,
+            verify_ssl=config.verify_ssl,
+            custom_ca_path=config.custom_ca_path
+        )
 
         # Results collection
         self.results = {

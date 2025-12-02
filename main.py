@@ -50,7 +50,12 @@ def parse_arguments():
 
     # Security options
     parser.add_argument('--proxy', help='Proxy URL (http://ip:port)')
-    parser.add_argument('--no-verify-ssl', action='store_true', help='Disable SSL verification')
+    parser.add_argument('--verify-ssl', action='store_true', default=True,
+                       help='Verify SSL certificates (default: enabled)')
+    parser.add_argument('--no-verify-ssl', action='store_false', dest='verify_ssl',
+                       help='Disable SSL certificate verification (NOT recommended)')
+    parser.add_argument('--custom-ca', dest='custom_ca_path',
+                       help='Path to custom CA certificate bundle')
     parser.add_argument('--header', action='append', help='Custom header (format: "Key: Value")')
 
     # Output options
@@ -113,9 +118,10 @@ def main():
             mode=ScanMode(args.mode),
             threads=args.threads,
             timeout=args.timeout,
-            verify_ssl=not args.no_verify_ssl,
+            verify_ssl=args.verify_ssl,
             proxy=proxy,
             custom_headers=custom_headers,
+            custom_ca_path=args.custom_ca_path,
             output_html=args.output_html,
             output_json=args.output_json,
             output_dir=args.output_dir,

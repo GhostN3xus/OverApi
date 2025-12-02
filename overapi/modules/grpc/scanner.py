@@ -12,10 +12,23 @@ from ...utils.http_client import HTTPClient
 class GrpcScanner:
     """Scanner for gRPC APIs with reflection support."""
 
-    def __init__(self, logger: Logger = None):
-        """Initialize gRPC scanner."""
+    def __init__(self, config: Config = None, logger: Logger = None):
+        """
+        Initialize gRPC scanner.
+
+        Args:
+            config: Configuration object
+            logger: Logger instance
+        """
+        self.config = config
         self.logger = logger or Logger(__name__)
-        self.http_client = HTTPClient(logger=self.logger)
+        verify_ssl = config.verify_ssl if config else True
+        custom_ca_path = config.custom_ca_path if config else None
+        self.http_client = HTTPClient(
+            logger=self.logger,
+            verify_ssl=verify_ssl,
+            custom_ca_path=custom_ca_path
+        )
 
     def discover(self, url: str, config: Config) -> List[Dict[str, Any]]:
         """
