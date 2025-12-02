@@ -6,11 +6,34 @@
 
 **OverApi** é uma ferramenta CLI profissional e modular para testes de segurança ofensivos e defensivos em APIs. Suporta REST, GraphQL, SOAP, gRPC, WebSockets e Webhooks.
 
+🎨 **NOVO**: Agora com Interface Gráfica (GUI) intuitiva para facilitar o uso!
+
 ---
 
 ## 🚀 Instalação Rápida
 
-### Método 1: Instalação via pip (Recomendado)
+### ⚡ Método Recomendado: Script Automatizado
+
+O jeito mais fácil de instalar o OverApi com todas as dependências:
+
+```bash
+# Clone o repositório
+git clone https://github.com/GhostN3xus/OverApi.git
+cd OverApi
+
+# Execute o script de instalação
+chmod +x install.sh
+./install.sh
+```
+
+O script irá:
+- ✅ Verificar todos os requisitos (Python, pip, etc.)
+- ✅ Instalar todas as dependências automaticamente
+- ✅ Configurar o comando `overapi` globalmente
+- ✅ Criar atalhos para a interface gráfica
+- ✅ (Opcional) Instalar ferramentas adicionais como SecLists
+
+### Método 1: Instalação via pip (Manual)
 
 ```bash
 # Clone o repositório
@@ -38,6 +61,18 @@ pip install -r requirements.txt
 python -m overapi --version
 ```
 
+**Nota para GUI:** Se você deseja usar a interface gráfica, certifique-se de ter o tkinter instalado:
+```bash
+# Ubuntu/Debian
+sudo apt-get install python3-tk
+
+# Fedora/RHEL
+sudo dnf install python3-tkinter
+
+# macOS (geralmente já vem instalado)
+brew install python-tk@3.11
+```
+
 ### Método 3: Ambiente virtual (Recomendado para desenvolvimento)
 
 ```bash
@@ -57,7 +92,30 @@ overapi --version
 
 ## 📖 Uso Básico
 
-### Comando Principal
+### 🎨 Interface Gráfica (GUI) - NOVO!
+
+A maneira mais fácil de usar o OverApi é através da interface gráfica:
+
+```bash
+# Abrir a GUI
+overapi-gui
+
+# Ou se instalou localmente
+python -m overapi.gui
+```
+
+**Recursos da GUI:**
+- ✨ Interface intuitiva e amigável
+- 📊 Visualização em tempo real do progresso
+- ⚙️ Configuração fácil de todos os parâmetros
+- 🔑 Gerenciamento de autenticação
+- 📝 Logs em tempo real
+- 💾 Salvamento automático de configurações
+- 🧪 Controle individual de módulos de teste
+
+![OverApi GUI](https://via.placeholder.com/800x600.png?text=OverApi+GUI+Screenshot)
+
+### 💻 Linha de Comando (CLI)
 
 Após instalação, use o comando `overapi`:
 
