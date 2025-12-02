@@ -51,6 +51,7 @@ setup(
     entry_points={
         "console_scripts": [
             "overapi=overapi.cli:main",
+            "overapi-gui=overapi.gui:main",
         ],
     },
     include_package_data=True,
