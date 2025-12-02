@@ -1,0 +1,25 @@
+# Include documentation
+include README.md
+include LICENSE
+include requirements.txt
+include INSTALLATION.md
+include PROJECT_SUMMARY.md
+include SECURITY_MODULES.md
+
+# Include configuration files
+include pyproject.toml
+include setup.py
+include pytest.ini
+
+# Include package data
+recursive-include overapi/data *.txt *.json
+recursive-include overapi *.py
+
+# Exclude unnecessary files
+global-exclude __pycache__
+global-exclude *.py[cod]
+global-exclude .DS_Store
+global-exclude *.so
+global-exclude *.dylib
+recursive-exclude tests *
+recursive-exclude .git *
