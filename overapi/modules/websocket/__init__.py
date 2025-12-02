@@ -1,5 +1,5 @@
 """WebSocket API module."""
 
-class WebSocketScanner:
-    """Placeholder for WebSocket scanner."""
-    pass
+from .scanner import WebSocketScanner
+
+__all__ = ["WebSocketScanner"]
