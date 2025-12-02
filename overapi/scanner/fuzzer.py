@@ -1,4 +1,3 @@
-"""Intelligent fuzzer for API endpoints with advanced robustness."""
 
 from typing import Dict, List, Any, Optional, Tuple
 from urllib.parse import urljoin
@@ -16,6 +15,25 @@ from ..utils.wordlist_loader import WordlistLoader
 class Fuzzer:
     """Advanced intelligent fuzzer for API testing with robustness features."""
 
+    def __init__(self, logger: Logger = None, verify_ssl: bool = True,
+                 custom_ca_path: Optional[str] = None):
+        """
+        Initialize fuzzer with SSL configuration.
+
+        Args:
+            logger: Logger instance
+            verify_ssl: Verify SSL certificates (default: True)
+            custom_ca_path: Path to custom CA certificate bundle
+        """
+        self.logger = logger or Logger(__name__)
+        self.verify_ssl = verify_ssl
+        self.custom_ca_path = custom_ca_path
+        self.http_client = HTTPClient(
+            logger=self.logger,
+            verify_ssl=verify_ssl,
+            custom_ca_path=custom_ca_path
+        )
+        self.wordlist = WordlistLoader()
     # Retry configuration
     MAX_RETRIES = 3
     RETRY_BACKOFF = [0.5, 1.0, 2.0]  # Exponential backoff in seconds

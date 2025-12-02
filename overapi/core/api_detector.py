@@ -1,4 +1,4 @@
-"""Automatic API type detection module."""
+"""Automatic API type detection module with SSL/TLS configuration."""
 
 import re
 from typing import Dict, List, Tuple, Optional
@@ -19,12 +19,37 @@ class APIDetector:
     SWAGGER_ENDPOINTS = ["/swagger", "/swagger-ui", "/swagger.json", "/swagger.yaml",
                          "/openapi", "/openapi.json", "/openapi.yaml"]
 
-    def __init__(self, logger: Logger = None):
-        """Initialize detector."""
+    def __init__(self, logger: Logger = None, verify_ssl: bool = True,
+                 custom_ca_path: Optional[str] = None):
+        """
+        Initialize detector with SSL configuration.
+
+        Args:
+            logger: Logger instance
+            verify_ssl: Verify SSL certificates (default: True)
+            custom_ca_path: Path to custom CA certificate bundle
+        """
         self.logger = logger or Logger(__name__)
+        self.verify_ssl = verify_ssl
+        self.custom_ca_path = custom_ca_path
+
         self.session = requests.Session()
-        self.session.verify = False
+        self._configure_ssl()
+
         self.detected_types = []
+
+    def _configure_ssl(self) -> None:
+        """Configure SSL/TLS settings for the session."""
+        if self.verify_ssl:
+            try:
+                import certifi
+                self.session.verify = self.custom_ca_path or certifi.where()
+            except Exception as e:
+                self.logger.warning(f"Failed to configure CA bundle: {str(e)}")
+                self.session.verify = True
+        else:
+            self.session.verify = False
+            self.logger.warning("SSL verification disabled in API detector - this is insecure!")
 
     def detect(self, url: str, timeout: int = 10) -> Tuple[List[str], Dict]:
         """

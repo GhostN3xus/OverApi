@@ -44,9 +44,11 @@ class Config:
     follow_redirects: bool = True
 
     # Security options
-    verify_ssl: bool = False
+    verify_ssl: bool = True
     proxy: Optional[ProxyConfig] = None
     custom_headers: Dict[str, str] = field(default_factory=dict)
+    custom_ca_path: Optional[str] = None
+    certificate_pinning: Dict[str, List[str]] = field(default_factory=dict)
 
     # Output options
     output_html: Optional[str] = None
