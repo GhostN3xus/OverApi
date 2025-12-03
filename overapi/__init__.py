@@ -3,8 +3,7 @@ OverApi - Universal API Security Scanner
 A robust, modular tool for offensive and defensive API scanning.
 """
 
-__version__ = "1.1.0"
-__author__ = "Security Research Team"
+from ._version import __version__, __version_info__, __author__, __email__, __license__, __url__
 
 from . import core, protocols, scanners, utils, reports, fuzzers, bypass, gui, payloads
 
