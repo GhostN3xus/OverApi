@@ -4,12 +4,18 @@ Modern and professional interface for API security scanning
 """
 
 import tkinter as tk
-from tkinter import ttk, scrolledtext, messagebox, filedialog
+from tkinter import ttk, scrolledtext, messagebox, filedialog, simpledialog
 import threading
 import queue
 from datetime import datetime
 from typing import Dict, Any, Optional
 import json
+import os
+
+from overapi.plugins.manager import PluginManager
+from overapi.tools.vuln_db import VulnerabilityDatabase
+from overapi.tools.wordlist_manager import WordlistManager
+from overapi.core.preferences import Preferences
 
 
 class ModernButton(tk.Button):
@@ -64,6 +70,12 @@ class EnterpriseGUI:
         self.root.title("OverApi Enterprise - API Security Scanner v2.0")
         self.root.geometry("1400x900")
         self.root.minsize(1200, 800)
+
+        # Initialize tools
+        self.plugin_manager = PluginManager()
+        self.vuln_db = VulnerabilityDatabase()
+        self.wordlist_manager = WordlistManager()
+        self.preferences = Preferences()
 
         # Color scheme
         self.colors = {
@@ -450,14 +462,15 @@ class EnterpriseGUI:
         metrics_container.pack(fill=tk.BOTH, expand=True, padx=20, pady=10)
 
         # Metric cards
+        self.metrics_labels = {}
         metrics = [
-            ('Total Scans', '0', self.colors['primary']),
-            ('Critical Issues', '0', self.colors['danger']),
-            ('High Issues', '0', self.colors['warning']),
-            ('Medium Issues', '0', self.colors['info']),
+            ('Total Scans', '0', self.colors['primary'], 'total_scans'),
+            ('Critical Issues', '0', self.colors['danger'], 'critical_issues'),
+            ('High Issues', '0', self.colors['warning'], 'high_issues'),
+            ('Medium Issues', '0', self.colors['info'], 'medium_issues'),
         ]
 
-        for i, (label, value, color) in enumerate(metrics):
+        for i, (label, value, color, key) in enumerate(metrics):
             card = tk.Frame(metrics_container, bg=color, relief=tk.RAISED, borderwidth=2)
             card.grid(row=0, column=i, padx=10, pady=10, sticky='nsew')
 
@@ -469,6 +482,7 @@ class EnterpriseGUI:
                 fg='white'
             )
             value_label.pack(pady=20)
+            self.metrics_labels[key] = value_label
 
             label_label = tk.Label(
                 card,
@@ -492,12 +506,43 @@ class EnterpriseGUI:
 
         chart_label = tk.Label(
             chart_frame,
-            text="📈 Charts will be displayed here\n(Requires matplotlib)",
+            text="📈 Vulnerability Trend\n(Simulation)",
             font=('Segoe UI', 14),
             bg=self.colors['bg'],
             fg=self.colors['dark']
         )
         chart_label.pack(expand=True)
+
+        # Draw a simple canvas bar chart simulation
+        self.chart_canvas = tk.Canvas(chart_frame, bg='white', height=300)
+        self.chart_canvas.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
+        self._draw_mock_chart()
+
+
+    def _draw_mock_chart(self):
+        """Draw a mock chart on the canvas"""
+        w = 800
+        h = 300
+        self.chart_canvas.delete("all")
+        # Axes
+        self.chart_canvas.create_line(50, h-50, w-50, h-50, width=2)
+        self.chart_canvas.create_line(50, h-50, 50, 50, width=2)
+
+        # Bars
+        data = [20, 45, 10, 30, 5]
+        labels = ["SQLi", "XSS", "Auth", "Conf", "Other"]
+        colors = ["#dc3545", "#ffc107", "#007bff", "#17a2b8", "#6c757d"]
+
+        bar_width = 50
+        gap = 30
+        x = 80
+
+        for i, val in enumerate(data):
+            bar_h = val * 3
+            self.chart_canvas.create_rectangle(x, h-50-bar_h, x+bar_width, h-50, fill=colors[i], outline="")
+            self.chart_canvas.create_text(x+bar_width/2, h-30, text=labels[i], font=('Segoe UI', 9))
+            x += bar_width + gap
+
 
     def _create_vulnerabilities_tab(self):
         """Create vulnerabilities display tab"""
@@ -773,11 +818,15 @@ custom_user_agent = OverApi/2.0
                     self._add_log("INFO", "Discovering endpoints...")
                 elif i == 50:
                     self._add_log("WARNING", "Potential vulnerability found!")
+
+                    # Example vulnerability enrichment
+                    vuln_data = self.vuln_db.get_vulnerability('SQL Injection')
+
                     self._add_vulnerability({
                         'severity': 'high',
                         'type': 'SQL Injection',
                         'endpoint': '/api/users?id=1',
-                        'owasp': 'API8:2023',
+                        'owasp': vuln_data.get('owasp', 'API8:2023') if vuln_data else 'API8:2023',
                         'evidence': 'SQL error message in response'
                     })
                 elif i == 75:
@@ -842,10 +891,59 @@ custom_user_agent = OverApi/2.0
         self.scan_stats['vulnerabilities'] += 1
         self.stats_labels['vulnerabilities'].config(text=str(self.scan_stats['vulnerabilities']))
 
+        # Update Dashboard metrics
+        self._update_dashboard_metrics(vuln)
+
+    def _update_dashboard_metrics(self, vuln):
+        """Update dashboard based on new vulnerability"""
+        severity = vuln['severity'].lower()
+        if severity == 'critical':
+            key = 'critical_issues'
+        elif severity == 'high':
+            key = 'high_issues'
+        elif severity == 'medium':
+            key = 'medium_issues'
+        else:
+            return
+
+        current_val = int(self.metrics_labels[key].cget("text"))
+        self.metrics_labels[key].config(text=str(current_val + 1))
+
+
     def _filter_vulnerabilities(self):
         """Filter vulnerability display"""
-        # Implementation for filtering
-        pass
+        search_term = self.search_var.get().lower()
+        severity_filter = self.filter_var.get().lower()
+
+        # Clear tree
+        for item in self.vuln_tree.get_children():
+            self.vuln_tree.delete(item)
+
+        # Re-populate
+        for i, vuln in enumerate(self.vulnerabilities):
+            # Check severity
+            if severity_filter != 'all' and vuln['severity'].lower() != severity_filter:
+                continue
+
+            # Check search
+            if search_term:
+                text = f"{vuln['type']} {vuln['endpoint']} {vuln['owasp']}".lower()
+                if search_term not in text:
+                    continue
+
+            self.vuln_tree.insert(
+                '',
+                'end',
+                text=str(i+1),
+                values=(
+                    vuln['severity'].upper(),
+                    vuln['type'],
+                    vuln['endpoint'],
+                    vuln['owasp']
+                ),
+                tags=(vuln['severity'].lower(),)
+            )
+
 
     def _on_vulnerability_select(self, event):
         """Handle vulnerability selection"""
@@ -854,10 +952,17 @@ custom_user_agent = OverApi/2.0
             return
 
         item = self.vuln_tree.item(selection[0])
+        # tree index is 1-based in my logic above
         idx = int(item['text']) - 1
 
         if 0 <= idx < len(self.vulnerabilities):
             vuln = self.vulnerabilities[idx]
+
+            # Enrich with DB data
+            db_info = self.vuln_db.get_vulnerability(vuln['type'])
+            description = db_info.get('description', 'No description available') if db_info else 'No description available'
+            remediation = db_info.get('remediation', 'No remediation available') if db_info else 'No remediation available'
+
             details = f"""Vulnerability Details:
 
 Type: {vuln['type']}
@@ -865,11 +970,14 @@ Severity: {vuln['severity'].upper()}
 Endpoint: {vuln['endpoint']}
 OWASP Category: {vuln['owasp']}
 
+Description:
+{description}
+
 Evidence:
 {vuln.get('evidence', 'No evidence available')}
 
 Recommendation:
-Implement proper input validation and parameterized queries.
+{remediation}
 """
             self.details_text.delete('1.0', tk.END)
             self.details_text.insert('1.0', details)
@@ -911,7 +1019,7 @@ Implement proper input validation and parameterized queries.
                 elif format_type == 'csv':
                     import csv
                     with open(filename, 'w', newline='') as f:
-                        writer = csv.DictWriter(f, fieldnames=['severity', 'type', 'endpoint', 'owasp'])
+                        writer = csv.DictWriter(f, fieldnames=['severity', 'type', 'endpoint', 'owasp', 'evidence'])
                         writer.writeheader()
                         writer.writerows(self.vulnerabilities)
                 else:
@@ -933,6 +1041,10 @@ Implement proper input validation and parameterized queries.
             self.vuln_tree.delete(item)
         self.progress_var.set(0)
 
+        # Reset metrics
+        for key in self.metrics_labels:
+            self.metrics_labels[key].config(text="0")
+
     def _load_config(self):
         """Load configuration from file"""
         messagebox.showinfo("Info", "Load configuration - Not yet implemented")
@@ -953,19 +1065,132 @@ Implement proper input validation and parameterized queries.
 
     def _open_plugin_manager(self):
         """Open plugin manager"""
-        messagebox.showinfo("Plugin Manager", "Plugin Manager - Coming Soon!")
+        win = tk.Toplevel(self.root)
+        win.title("Plugin Manager")
+        win.geometry("600x400")
+
+        # List plugins
+        plugins = self.plugin_manager.discover_plugins()
+
+        listbox = tk.Listbox(win, font=('Segoe UI', 10))
+        listbox.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
+
+        for p in plugins:
+            listbox.insert(tk.END, p)
+
+        def load_selected():
+            selection = listbox.curselection()
+            if selection:
+                name = listbox.get(selection[0])
+                if self.plugin_manager.load_plugin(name):
+                    messagebox.showinfo("Success", f"Plugin {name} loaded!")
+                else:
+                    messagebox.showerror("Error", f"Failed to load {name}")
+
+        tk.Button(win, text="Load Plugin", command=load_selected).pack(pady=10)
 
     def _open_vuln_db(self):
         """Open vulnerability database"""
-        messagebox.showinfo("Vulnerability Database", "Vulnerability Database - Coming Soon!")
+        win = tk.Toplevel(self.root)
+        win.title("Vulnerability Database")
+        win.geometry("800x600")
+
+        db = self.vuln_db.get_all()
+
+        # Split view
+        paned = tk.PanedWindow(win, orient=tk.HORIZONTAL)
+        paned.pack(fill=tk.BOTH, expand=True)
+
+        list_frame = tk.Frame(paned)
+        listbox = tk.Listbox(list_frame, font=('Segoe UI', 10))
+        listbox.pack(fill=tk.BOTH, expand=True)
+
+        for key in db.keys():
+            listbox.insert(tk.END, key)
+
+        paned.add(list_frame)
+
+        detail_frame = tk.Frame(paned)
+        text = scrolledtext.ScrolledText(detail_frame, wrap=tk.WORD, font=('Segoe UI', 10))
+        text.pack(fill=tk.BOTH, expand=True)
+        paned.add(detail_frame)
+
+        def on_select(evt):
+            w = evt.widget
+            if not w.curselection():
+                return
+            index = int(w.curselection()[0])
+            value = w.get(index)
+            data = db[value]
+
+            content = f"""Title: {data.get('title')}
+
+CWE: {data.get('cwe')}
+OWASP: {data.get('owasp')}
+
+Description:
+{data.get('description')}
+
+Impact:
+{data.get('impact')}
+
+Remediation:
+{data.get('remediation')}
+"""
+            text.delete('1.0', tk.END)
+            text.insert('1.0', content)
+
+        listbox.bind('<<ListboxSelect>>', on_select)
 
     def _open_wordlist_manager(self):
         """Open wordlist manager"""
-        messagebox.showinfo("Wordlist Manager", "Wordlist Manager - Coming Soon!")
+        win = tk.Toplevel(self.root)
+        win.title("Wordlist Manager")
+        win.geometry("600x400")
+
+        wordlists = self.wordlist_manager.list_wordlists()
+
+        listbox = tk.Listbox(win, font=('Segoe UI', 10))
+        listbox.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
+
+        for w in wordlists:
+            listbox.insert(tk.END, w)
+
+        def create_new():
+            name = simpledialog.askstring("New Wordlist", "Enter wordlist name:")
+            if name:
+                self.wordlist_manager.create_wordlist(name, [])
+                listbox.insert(tk.END, name)
+
+        tk.Button(win, text="Create New", command=create_new).pack(pady=10)
 
     def _open_preferences(self):
         """Open preferences dialog"""
-        messagebox.showinfo("Preferences", "Preferences - Coming Soon!")
+        win = tk.Toplevel(self.root)
+        win.title("Preferences")
+        win.geometry("500x400")
+
+        # Scan settings
+        frame = tk.LabelFrame(win, text="Scan Settings", padx=10, pady=10)
+        frame.pack(fill=tk.X, padx=10, pady=10)
+
+        tk.Label(frame, text="Timeout:").grid(row=0, column=0, sticky='w')
+        timeout_entry = tk.Entry(frame)
+        timeout_entry.insert(0, str(self.preferences.get("scan", "timeout", 30)))
+        timeout_entry.grid(row=0, column=1)
+
+        tk.Label(frame, text="Max Threads:").grid(row=1, column=0, sticky='w')
+        threads_entry = tk.Entry(frame)
+        threads_entry.insert(0, str(self.preferences.get("scan", "max_threads", 10)))
+        threads_entry.grid(row=1, column=1)
+
+        def save():
+            self.preferences.set("scan", "timeout", int(timeout_entry.get()))
+            self.preferences.set("scan", "max_threads", int(threads_entry.get()))
+            messagebox.showinfo("Saved", "Preferences saved!")
+            win.destroy()
+
+        tk.Button(win, text="Save", command=save).pack(pady=20)
 
     def _show_docs(self):
         """Show documentation"""
