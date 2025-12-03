@@ -1,12 +1,27 @@
-# 🔒 OverApi - Universal API Security Scanner
+# 🔒 OverApi - Enterprise API Security Platform
 
 [![Python](https://img.shields.io/badge/python-3.8+-blue.svg)](https://www.python.org/downloads/)
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
-[![Security](https://img.shields.io/badge/security-pentesting-red.svg)](https://github.com/GhostN3xus/OverApi)
+[![Security](https://img.shields.io/badge/security-enterprise-red.svg)](https://github.com/GhostN3xus/OverApi)
+[![Version](https://img.shields.io/badge/version-2.0.0--enterprise-brightgreen.svg)](https://github.com/GhostN3xus/OverApi)
+[![OWASP](https://img.shields.io/badge/OWASP-API%20Top%2010-orange.svg)](https://owasp.org/www-project-api-security/)
 
-**OverApi** é uma ferramenta CLI profissional e modular para testes de segurança ofensivos e defensivos em APIs. Suporta REST, GraphQL, SOAP, gRPC, WebSockets e Webhooks.
+## 🌟 Enterprise-Grade API Security Testing Framework
 
-🎨 **NOVO**: Agora com Interface Gráfica (GUI) intuitiva para facilitar o uso!
+**OverApi Enterprise Edition** é a plataforma definitiva para testes de segurança profissionais em APIs. Construída para empresas que exigem o mais alto nível de segurança, auditoria e compliance.
+
+### 🚀 Nova Versão Enterprise 2.0
+
+- ✨ Interface Gráfica Moderna (Tkinter Premium UI)
+- 🔍 **150+ Regras de Detecção** de Vulnerabilidades
+- 📊 Relatórios Executivos em PDF, HTML, JSON, XML, CSV
+- 🔌 Sistema de Plugins Extensível
+- 📈 Dashboard de Métricas em Tempo Real
+- 🔐 Suporte Completo para OWASP API Security Top 10 2023
+- 🌐 Multi-Protocol: REST, GraphQL, SOAP, gRPC, WebSockets, Webhooks
+- 🎯 Machine Learning para Detecção Avançada
+- 📝 Logging Enterprise com Rotação e Compressão
+- 🔄 Integração CI/CD (Jenkins, GitLab, GitHub Actions)
 
 ---
 
@@ -300,36 +315,109 @@ overapi scan \
 
 ---
 
-## 🔍 Recursos
+## 🔍 Recursos Enterprise
 
-### Detecção de Tipo de API
-- ✅ Detecção automática de tipos de API
-- ✅ Identificação baseada em heurísticas inteligentes
-- ✅ Suporte para APIs não documentadas (scan cego)
+### 🎯 Detecção Avançada de Vulnerabilidades (150+ Regras)
 
-### Descoberta de Endpoints
-- ✅ Fuzzing baseado em wordlist
-- ✅ Parsing de documentação Swagger/OpenAPI
-- ✅ Introspecção GraphQL
-- ✅ Parsing WSDL para SOAP
-- ✅ Reflexão gRPC
+#### OWASP API Security Top 10 (2023)
+- ✅ **API1:2023** - Broken Object Level Authorization (BOLA/IDOR)
+- ✅ **API2:2023** - Broken Authentication
+- ✅ **API3:2023** - Broken Object Property Level Authorization
+- ✅ **API4:2023** - Unrestricted Resource Consumption
+- ✅ **API5:2023** - Broken Function Level Authorization (BFLA)
+- ✅ **API6:2023** - Unrestricted Access to Sensitive Business Flows
+- ✅ **API7:2023** - Server Side Request Forgery (SSRF)
+- ✅ **API8:2023** - Security Misconfiguration
+- ✅ **API9:2023** - Improper Inventory Management
+- ✅ **API10:2023** - Unsafe Consumption of APIs
 
-### Testes de Segurança
-- ✅ **OWASP API Top 10** - Testes de vulnerabilidades
-- ✅ Testes de Injeção (SQLi, XSS, NoSQL, Command Injection)
-- ✅ BOLA (Broken Object Level Authorization)
-- ✅ Detecção de bypass de autenticação
-- ✅ Testes de rate limit
-- ✅ Detecção de exposição de dados
-- ✅ Testes de lógica de negócio
-- ✅ Análise JWT
-- ✅ SSRF Testing
+#### Testes de Injeção Avançados
+- ✅ SQL Injection (SQLi) - 30+ payloads
+- ✅ NoSQL Injection (MongoDB, CouchDB, etc.)
+- ✅ XSS (Reflected, Stored, DOM-based)
+- ✅ XML External Entity (XXE)
+- ✅ Command Injection (OS Command)
+- ✅ LDAP Injection
+- ✅ XPath Injection
+- ✅ Template Injection (SSTI)
+- ✅ Host Header Injection
+- ✅ CRLF Injection
 
-### Relatórios
-- ✅ Relatórios HTML profissionais com código de cores por severidade
-- ✅ Relatórios JSON estruturados
-- ✅ Sumário executivo com avaliação de risco
-- ✅ Evidências detalhadas de vulnerabilidades
+#### Testes de Autenticação e Autorização
+- ✅ JWT Vulnerabilities (Algorithm Confusion, None alg, Weak Secret)
+- ✅ OAuth 2.0 Misconfigurations
+- ✅ API Key Leakage and Weak Keys
+- ✅ Session Fixation
+- ✅ Privilege Escalation (Horizontal & Vertical)
+- ✅ Authentication Bypass
+- ✅ Token Manipulation
+- ✅ CSRF/XSRF Protection Testing
+
+#### Testes de Lógica de Negócio
+- ✅ Race Conditions
+- ✅ Mass Assignment
+- ✅ Parameter Pollution
+- ✅ Price/Quantity Manipulation
+- ✅ Workflow Bypass
+- ✅ Business Logic Flaws
+
+#### Testes de Exposição de Dados
+- ✅ Sensitive Data in Responses
+- ✅ PII (Personally Identifiable Information) Leakage
+- ✅ Credit Card/Financial Data Exposure
+- ✅ API Key/Secret Exposure
+- ✅ Debug Information Leakage
+- ✅ Stack Traces and Error Messages
+
+#### Testes de Configuração de Segurança
+- ✅ CORS Misconfiguration
+- ✅ Missing Security Headers (15+ headers)
+- ✅ TLS/SSL Configuration
+- ✅ Certificate Validation
+- ✅ HTTP Methods Testing
+- ✅ Directory Listing
+- ✅ Backup File Discovery
+
+#### Testes de Rate Limiting e DoS
+- ✅ Rate Limiting Detection
+- ✅ Resource Exhaustion
+- ✅ Regex DoS (ReDoS)
+- ✅ XML Bomb Detection
+- ✅ Billion Laughs Attack
+
+### 📊 Relatórios Multi-Formato
+- ✅ **PDF Executivo** - Relatórios para C-level com gráficos
+- ✅ **HTML Interativo** - Dashboard navegável com filtros
+- ✅ **JSON Estruturado** - Integração com outras ferramentas
+- ✅ **XML** - Formato de auditoria corporativa
+- ✅ **CSV** - Análise em Excel/Sheets
+- ✅ **Markdown** - Documentação técnica
+- ✅ **SARIF** - Integração CI/CD
+- ✅ Integração com JIRA, Slack, Teams
+
+### 🔌 Sistema de Plugins
+- ✅ Arquitetura extensível
+- ✅ Plugins customizados em Python
+- ✅ Marketplace de plugins
+- ✅ Hot-reload de plugins
+- ✅ API para desenvolvedores
+
+### 📈 Dashboard e Monitoramento
+- ✅ Métricas em tempo real
+- ✅ Gráficos de progresso
+- ✅ Timeline de vulnerabilidades
+- ✅ Estatísticas agregadas
+- ✅ Histórico de scans
+- ✅ Comparação entre scans
+
+### 🔄 Integração CI/CD
+- ✅ GitHub Actions
+- ✅ GitLab CI
+- ✅ Jenkins
+- ✅ Azure DevOps
+- ✅ CircleCI
+- ✅ Travis CI
+- ✅ Quality Gates customizáveis
 
 ---
 
