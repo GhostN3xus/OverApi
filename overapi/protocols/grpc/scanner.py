@@ -6,20 +6,23 @@ from urllib.parse import urlparse
 
 from ...core.logger import Logger
 from ...core.config import Config
+from ...core.context import ScanContext, Endpoint
 from ...utils.http_client import HTTPClient
 
 
-class GrpcScanner:
+class GRPCScanner:
     """Scanner for gRPC APIs with reflection support."""
 
-    def __init__(self, config: Config = None, logger: Logger = None):
+    def __init__(self, context: ScanContext = None, config: Config = None, logger: Logger = None):
         """
         Initialize gRPC scanner.
 
         Args:
+            context: Scan context (optional for backward compatibility)
             config: Configuration object
             logger: Logger instance
         """
+        self.context = context
         self.config = config
         self.logger = logger or Logger(__name__)
         verify_ssl = config.verify_ssl if config else True
@@ -30,9 +33,75 @@ class GrpcScanner:
             custom_ca_path=custom_ca_path
         )
 
+    def discover_endpoints(self) -> List[Endpoint]:
+        """
+        Discover gRPC endpoints (standardized interface).
+
+        Returns:
+            List of discovered endpoints
+        """
+        endpoints = []
+
+        try:
+            url = self.config.url if self.config else None
+            if not url:
+                self.logger.warning("No URL provided for gRPC scanning")
+                return endpoints
+
+            # Try gRPC reflection via HTTP/2
+            services = self._get_reflection_services(url, self.config)
+
+            if services:
+                for service in services:
+                    methods = self._extract_methods(service, url)
+
+                    # Convert to Endpoint objects
+                    for method in methods:
+                        endpoint = Endpoint(
+                            path=method.get("path", ""),
+                            method="POST",
+                            metadata={
+                                "type": "grpc",
+                                "input_type": method.get("input_type", ""),
+                                "output_type": method.get("output_type", ""),
+                                "client_streaming": method.get("client_streaming", False),
+                                "server_streaming": method.get("server_streaming", False),
+                                "full_name": method.get("full_name", "")
+                            }
+                        )
+                        endpoints.append(endpoint)
+
+                        # Add to context if available
+                        if self.context:
+                            self.context.add_endpoint(endpoint)
+            else:
+                # Fallback: common gRPC endpoints
+                common = self._scan_common_endpoints(url, self.config)
+                for ep in common:
+                    endpoint = Endpoint(
+                        path=ep.get("path", ""),
+                        method=ep.get("method", "POST"),
+                        metadata={
+                            "type": "grpc",
+                            "status": ep.get("status", 0),
+                            "accessible": ep.get("accessible", False)
+                        }
+                    )
+                    endpoints.append(endpoint)
+
+                    if self.context:
+                        self.context.add_endpoint(endpoint)
+
+            self.logger.debug(f"Discovered {len(endpoints)} gRPC endpoints")
+
+        except Exception as e:
+            self.logger.error(f"gRPC endpoint discovery failed: {str(e)}")
+
+        return endpoints
+
     def discover(self, url: str, config: Config) -> List[Dict[str, Any]]:
         """
-        Discover gRPC services and methods using reflection.
+        Discover gRPC services and methods using reflection (legacy method).
 
         Args:
             url: Target URL

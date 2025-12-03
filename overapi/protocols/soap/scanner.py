@@ -7,33 +7,82 @@ import re
 
 from ...core.logger import Logger
 from ...core.config import Config
+from ...core.context import ScanContext, Endpoint
 from ...utils.http_client import HTTPClient
 
 
-class SoapScanner:
+class SOAPScanner:
     """Scanner for SOAP APIs."""
 
-    def __init__(self, config: Config, logger: Logger = None):
+    def __init__(self, context: ScanContext = None, config: Config = None, logger: Logger = None):
         """
         Initialize SOAP scanner.
 
         Args:
+            context: Scan context (optional for backward compatibility)
             config: Configuration
             logger: Logger instance
         """
+        self.context = context
         self.config = config
         self.logger = logger or Logger(__name__)
         self.http_client = HTTPClient(
             logger=self.logger,
-            timeout=config.timeout,
-            verify_ssl=config.verify_ssl,
-            proxy=config.proxy.get_proxies() if config.proxy else None,
-            custom_ca_path=config.custom_ca_path
+            timeout=config.timeout if config else 30,
+            verify_ssl=config.verify_ssl if config else True,
+            proxy=config.proxy.get_proxies() if (config and config.proxy) else None,
+            custom_ca_path=config.custom_ca_path if config else None
         )
+
+    def discover_endpoints(self) -> List[Endpoint]:
+        """
+        Discover SOAP endpoints (standardized interface).
+
+        Returns:
+            List of discovered endpoints
+        """
+        endpoints = []
+
+        try:
+            # Find WSDL
+            wsdl_url = self._find_wsdl()
+
+            if not wsdl_url:
+                self.logger.warning("WSDL not found")
+                return endpoints
+
+            # Parse WSDL
+            methods = self._parse_wsdl(wsdl_url)
+
+            # Convert methods to Endpoint objects
+            for method in methods:
+                endpoint = Endpoint(
+                    path=method.get("path", ""),
+                    method="POST",
+                    metadata={
+                        "type": "soap",
+                        "soap_method": method.get("method", ""),
+                        "wsdl_url": wsdl_url,
+                        "full_url": method.get("full_url", "")
+                    }
+                )
+                endpoints.append(endpoint)
+
+                # Add to context if available
+                if self.context:
+                    self.context.add_endpoint(endpoint)
+
+            self.logger.debug(f"Discovered {len(endpoints)} SOAP methods")
+
+            return endpoints
+
+        except Exception as e:
+            self.logger.error(f"SOAP endpoint discovery failed: {str(e)}")
+            return endpoints
 
     def discover_methods(self) -> List[Dict[str, Any]]:
         """
-        Discover SOAP methods via WSDL.
+        Discover SOAP methods via WSDL (legacy method).
 
         Returns:
             List of discovered methods

@@ -7,6 +7,7 @@ from urllib.parse import urlparse, urljoin
 
 from ...core.logger import Logger
 from ...core.config import Config
+from ...core.context import ScanContext, Endpoint
 from ...utils.http_client import HTTPClient
 from ...utils.validators import Validators
 
@@ -14,14 +15,16 @@ from ...utils.validators import Validators
 class WebSocketScanner:
     """Scanner for WebSocket APIs."""
 
-    def __init__(self, config: Config = None, logger: Logger = None):
+    def __init__(self, context: ScanContext = None, config: Config = None, logger: Logger = None):
         """
         Initialize WebSocket scanner.
 
         Args:
+            context: Scan context (optional for backward compatibility)
             config: Configuration object
             logger: Logger instance
         """
+        self.context = context
         self.config = config
         self.logger = logger or Logger(__name__)
         verify_ssl = config.verify_ssl if config else True
@@ -32,9 +35,66 @@ class WebSocketScanner:
             custom_ca_path=custom_ca_path
         )
 
+    def discover_endpoints(self) -> List[Endpoint]:
+        """
+        Discover WebSocket endpoints (standardized interface).
+
+        Returns:
+            List of discovered endpoints
+        """
+        endpoints = []
+
+        try:
+            url = self.config.url if self.config else None
+            if not url:
+                self.logger.warning("No URL provided for WebSocket scanning")
+                return endpoints
+
+            # Try to detect WebSocket endpoints
+            common = self._scan_common_ws_endpoints(url, self.config)
+            for ep in common:
+                endpoint = Endpoint(
+                    path=ep.get("path", ""),
+                    method="WEBSOCKET",
+                    metadata={
+                        "type": "websocket",
+                        "ws_url": ep.get("ws_url", ""),
+                        "status": ep.get("status", 0),
+                        "accessible": ep.get("accessible", False)
+                    }
+                )
+                endpoints.append(endpoint)
+
+                if self.context:
+                    self.context.add_endpoint(endpoint)
+
+            # Try to get OpenAPI/Swagger spec for WebSocket endpoints
+            spec_endpoints = self._scan_from_api_spec(url, self.config)
+            for ep in spec_endpoints:
+                endpoint = Endpoint(
+                    path=ep.get("path", ""),
+                    method="WEBSOCKET",
+                    metadata={
+                        "type": "websocket",
+                        "ws_url": ep.get("ws_url", ""),
+                        "source": "api_spec"
+                    }
+                )
+                endpoints.append(endpoint)
+
+                if self.context:
+                    self.context.add_endpoint(endpoint)
+
+            self.logger.debug(f"Discovered {len(endpoints)} WebSocket endpoints")
+
+        except Exception as e:
+            self.logger.error(f"WebSocket endpoint discovery failed: {str(e)}")
+
+        return endpoints
+
     def discover(self, url: str, config: Config) -> List[Dict[str, Any]]:
         """
-        Discover WebSocket endpoints.
+        Discover WebSocket endpoints (legacy method).
 
         Args:
             url: Target URL
