@@ -1,9 +1,57 @@
+# Core HTTP/Network
 requests>=2.28.0
 urllib3>=1.26.0
+aiohttp>=3.9.0
+httpx>=0.25.0
+
+# WebSocket Support
+websocket-client>=1.7.0
+websockets>=12.0
+
+# Protocol Support
+grpcio>=1.60.0
+grpcio-tools>=1.60.0
+gql>=3.5.0
+graphql-core>=3.2.3
+
+# Report Generation
+jinja2>=3.1.0
+weasyprint>=60.0
+reportlab>=4.0.0
+markdown>=3.5.0
+pygments>=2.17.0
+
+# Database/Persistence
+sqlalchemy>=2.0.0
+alembic>=1.13.0
+
+# API Server
+fastapi>=0.108.0
+uvicorn[standard]>=0.25.0
+pydantic>=2.5.0
+
+# XML/HTML Parsing
+lxml>=5.0.0
+beautifulsoup4>=4.12.0
+
+# Testing
 pytest>=7.0.0
 pytest-timeout>=2.1.0
 pytest-cov>=3.0.0
 pytest-mock>=3.6.0
 pytest-asyncio>=0.20.0
+
+# Security/Crypto
 pyjwt>=2.6.0
+cryptography>=41.0.0
+
+# Config/Data
 pyyaml>=6.0
+python-dotenv>=1.0.0
+
+# CLI Improvements
+rich>=13.7.0
+click>=8.1.0
+
+# Performance
+orjson>=3.9.0

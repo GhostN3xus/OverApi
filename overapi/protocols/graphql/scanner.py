@@ -6,6 +6,7 @@ import json
 
 from ...core.logger import Logger
 from ...core.config import Config
+from ...core.context import ScanContext, Endpoint
 from ...utils.http_client import HTTPClient
 
 
@@ -14,27 +15,77 @@ class GraphQLScanner:
 
     GRAPHQL_ENDPOINTS = ["/graphql", "/.graphql", "/api/graphql", "/graphql/query"]
 
-    def __init__(self, config: Config, logger: Logger = None):
+    def __init__(self, context: ScanContext = None, config: Config = None, logger: Logger = None):
         """
         Initialize GraphQL scanner.
 
         Args:
+            context: Scan context (optional for backward compatibility)
             config: Configuration
             logger: Logger instance
         """
+        self.context = context
         self.config = config
         self.logger = logger or Logger(__name__)
         self.http_client = HTTPClient(
             logger=self.logger,
-            timeout=config.timeout,
-            verify_ssl=config.verify_ssl,
-            proxy=config.proxy.get_proxies() if config.proxy else None,
-            custom_ca_path=config.custom_ca_path
+            timeout=config.timeout if config else 30,
+            verify_ssl=config.verify_ssl if config else True,
+            proxy=config.proxy.get_proxies() if (config and config.proxy) else None,
+            custom_ca_path=config.custom_ca_path if config else None
         )
+
+    def discover_endpoints(self) -> List[Endpoint]:
+        """
+        Discover GraphQL endpoints (standardized interface).
+
+        Returns:
+            List of discovered endpoints
+        """
+        endpoints = []
+
+        try:
+            # Find GraphQL endpoint
+            graphql_url = self._find_graphql_endpoint()
+
+            if not graphql_url:
+                self.logger.warning("GraphQL endpoint not found")
+                return endpoints
+
+            # Perform introspection
+            schema = self._introspect(graphql_url)
+
+            if schema:
+                fields = self._extract_fields(schema, graphql_url)
+
+                # Convert fields to Endpoint objects
+                for field in fields:
+                    endpoint = Endpoint(
+                        path=field.get("path", ""),
+                        method="POST",
+                        metadata={
+                            "type": "graphql",
+                            "field_type": field.get("type", ""),
+                            "graphql_endpoint": graphql_url
+                        }
+                    )
+                    endpoints.append(endpoint)
+
+                    # Add to context if available
+                    if self.context:
+                        self.context.add_endpoint(endpoint)
+
+                self.logger.debug(f"Discovered {len(endpoints)} GraphQL fields")
+
+            return endpoints
+
+        except Exception as e:
+            self.logger.error(f"GraphQL endpoint discovery failed: {str(e)}")
+            return endpoints
 
     def discover_fields(self) -> List[Dict[str, Any]]:
         """
-        Discover GraphQL fields via introspection.
+        Discover GraphQL fields via introspection (legacy method).
 
         Returns:
             List of discovered fields

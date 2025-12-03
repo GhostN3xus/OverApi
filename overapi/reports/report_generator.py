@@ -8,6 +8,8 @@ from ..core.logger import Logger
 from ..core.context import ScanContext
 from .html_generator import HTMLReportGenerator
 from .json_generator import JSONReportGenerator
+from .pdf_generator import PDFReportGenerator
+from .csv_generator import CSVReportGenerator
 
 
 class ReportGenerator:
@@ -15,7 +17,7 @@ class ReportGenerator:
     Orchestrates report generation in multiple formats.
 
     Generates professional security reports from scan results
-    in HTML, JSON, and other formats.
+    in HTML, JSON, PDF, and CSV formats.
     """
 
     def __init__(self, logger: Logger = None):
@@ -28,13 +30,19 @@ class ReportGenerator:
         self.logger = logger or Logger(__name__)
         self.html_gen = HTMLReportGenerator(logger=self.logger)
         self.json_gen = JSONReportGenerator(logger=self.logger)
+        self.pdf_gen = PDFReportGenerator(logger=self.logger)
+        self.csv_gen = CSVReportGenerator(logger=self.logger)
 
     def generate(
         self,
         context: ScanContext,
         output_dir: Optional[Path] = None,
         formats: Optional[List[str]] = None,
-        filename_prefix: Optional[str] = None
+        filename_prefix: Optional[str] = None,
+        output_html: Optional[str] = None,
+        output_json: Optional[str] = None,
+        output_pdf: Optional[str] = None,
+        output_csv: Optional[str] = None
     ) -> Dict[str, Path]:
         """
         Generate reports in specified formats.
@@ -42,8 +50,12 @@ class ReportGenerator:
         Args:
             context: ScanContext with scan results
             output_dir: Output directory (default: ./reports)
-            formats: List of formats ['html', 'json'] (default: ['html', 'json'])
+            formats: List of formats ['html', 'json', 'pdf', 'csv'] (default: ['html', 'json'])
             filename_prefix: Custom filename prefix (default: scan_<timestamp>)
+            output_html: Specific HTML output path
+            output_json: Specific JSON output path
+            output_pdf: Specific PDF output path
+            output_csv: Specific CSV output path
 
         Returns:
             Dict mapping format to generated file path
@@ -53,7 +65,7 @@ class ReportGenerator:
             generator = ReportGenerator()
             reports = generator.generate(
                 context,
-                formats=['html', 'json'],
+                formats=['html', 'json', 'pdf', 'csv'],
                 output_dir=Path('./my_reports')
             )
             print(f"HTML report: {reports['html']}")
@@ -72,25 +84,54 @@ class ReportGenerator:
         results = {}
 
         try:
-            if 'html' in formats:
+            if 'html' in formats or output_html:
                 self.logger.info("Generating HTML report...")
+                html_filename = Path(output_html).name if output_html else f"{filename_prefix}.html"
                 html_path = self.html_gen.generate(
                     context,
-                    output_dir,
-                    filename_prefix
+                    Path(output_html).parent if output_html else output_dir,
+                    html_filename
                 )
                 results['html'] = html_path
                 self.logger.info(f"HTML report generated: {html_path}")
 
-            if 'json' in formats:
+            if 'json' in formats or output_json:
                 self.logger.info("Generating JSON report...")
+                json_filename = Path(output_json).name if output_json else f"{filename_prefix}.json"
                 json_path = self.json_gen.generate(
                     context,
-                    output_dir,
-                    filename_prefix
+                    Path(output_json).parent if output_json else output_dir,
+                    json_filename
                 )
                 results['json'] = json_path
                 self.logger.info(f"JSON report generated: {json_path}")
+
+            if 'pdf' in formats or output_pdf:
+                try:
+                    self.logger.info("Generating PDF report...")
+                    pdf_filename = Path(output_pdf).name if output_pdf else f"{filename_prefix}.pdf"
+                    pdf_path = self.pdf_gen.generate(
+                        context,
+                        Path(output_pdf).parent if output_pdf else output_dir,
+                        pdf_filename
+                    )
+                    results['pdf'] = pdf_path
+                    self.logger.info(f"PDF report generated: {pdf_path}")
+                except ImportError:
+                    self.logger.warning("PDF generation skipped: WeasyPrint not installed")
+                except Exception as e:
+                    self.logger.error(f"PDF generation failed: {str(e)}")
+
+            if 'csv' in formats or output_csv:
+                self.logger.info("Generating CSV reports...")
+                csv_filename = Path(output_csv).name if output_csv else f"{filename_prefix}.csv"
+                csv_path = self.csv_gen.generate(
+                    context,
+                    Path(output_csv).parent if output_csv else output_dir,
+                    csv_filename
+                )
+                results['csv'] = csv_path
+                self.logger.info(f"CSV reports generated: {csv_path}")
 
             self.logger.info(f"Reports generated successfully: {len(results)} files")
             return results
