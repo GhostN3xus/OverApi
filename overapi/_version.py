@@ -1,7 +1,7 @@
 """Single source of truth for version information."""
 
-__version__ = "2.0.0-enterprise"
-__version_info__ = (2, 0, 0, "enterprise")
+__version__ = "2.0.0"
+__version_info__ = (2, 0, 0)
 __edition__ = "Enterprise"
 __build__ = "20241203"
 

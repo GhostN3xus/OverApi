@@ -31,10 +31,10 @@ wheels/
 *~
 .DS_Store
 
-# Reports and outputs
-reports/
+# Reports and outputs (exclude source code)
+/reports/
+output/
 *.html
-*.json
 *.log
 test_report.*
 

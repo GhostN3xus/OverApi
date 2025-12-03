@@ -1,5 +1,5 @@
 """gRPC API module."""
 
-from .scanner import GrpcScanner
+from .scanner import GRPCScanner
 
-__all__ = ["GrpcScanner"]
+__all__ = ["GRPCScanner"]

@@ -1,5 +1,5 @@
 """SOAP API module."""
 
-from .scanner import SoapScanner
+from .scanner import SOAPScanner
 
-__all__ = ["SoapScanner"]
+__all__ = ["SOAPScanner"]
