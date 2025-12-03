@@ -15,8 +15,8 @@ sys.path.insert(0, str(Path(__file__).parent))
 from overapi.core.logger import Logger
 from overapi.core.config import Config, ScanMode, ProxyConfig
 from overapi.core.exceptions import OverApiException
-from overapi.scanner.scanner import Scanner
-from overapi.report.report_generator import ReportGenerator
+from overapi.scanners.orchestrator import Orchestrator
+from overapi.reports.report_generator import ReportGenerator
 
 
 def print_banner():
@@ -24,7 +24,7 @@ def print_banner():
     banner = """
     ╔═══════════════════════════════════════════════════════════╗
     ║          🔒 OverApi - API Security Scanner 🔒             ║
-    ║                    v1.0.0                                 ║
+    ║                  v2.0.0 Enterprise                        ║
     ║  Comprehensive Offensive & Defensive API Testing         ║
     ╚═══════════════════════════════════════════════════════════╝
     """
@@ -136,8 +136,8 @@ def main():
         )
 
         # Run scanner
-        scanner = Scanner(config, logger)
-        results = scanner.scan()
+        orchestrator = Orchestrator(config, logger)
+        results = orchestrator.scan()
 
         # Generate reports
         logger.info("\nGenerating reports...")
