@@ -6,6 +6,11 @@ Setup configuration for installation
 
 from setuptools import setup, find_packages
 from pathlib import Path
+import sys
+
+# Add package directory to path to import version
+sys.path.insert(0, str(Path(__file__).parent))
+from overapi._version import __version__, __author__, __email__, __url__
 
 # Read README for long description
 readme_file = Path(__file__).parent / "README.md"
@@ -23,7 +28,7 @@ if requirements_file.exists():
 
 setup(
     name="overapi",
-    version="1.0.0",
+    version=__version__,
     author="OverApi Team",
     author_email="security@overapi.dev",
     description="Universal API Security Scanner - Comprehensive offensive & defensive API testing",

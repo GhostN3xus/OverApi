@@ -9,12 +9,11 @@ import sys
 import os
 from pathlib import Path
 
+from overapi._version import __version__
 from overapi.core.logger import Logger
 from overapi.core.config import Config, ScanMode, ProxyConfig
 from overapi.scanners.orchestrator import Orchestrator
 from overapi.reports.report_generator import ReportGenerator
-
-__version__ = "1.1.0"
 
 def print_banner():
     """Print application banner."""
