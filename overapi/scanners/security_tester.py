@@ -7,6 +7,18 @@ from urllib.parse import urljoin
 
 from ..core.logger import Logger
 from ..core.config import Config
+from ..core.constants import (
+    DEFAULT_SQLI_PAYLOAD_LIMIT,
+    DEFAULT_XSS_PAYLOAD_LIMIT,
+    DEFAULT_CMD_INJECTION_PAYLOAD_LIMIT,
+    RATE_LIMIT_TEST_REQUESTS,
+    RATE_LIMIT_TEST_DELAY,
+    NON_VULNERABILITY_STATUS_CODES,
+    SENSITIVE_KEYWORDS,
+    SEVERITY_CRITICAL,
+    SEVERITY_HIGH,
+    SEVERITY_MEDIUM
+)
 from ..utils.http_client import HTTPClient
 from ..utils.wordlist_loader import WordlistLoader
 from ..utils.validators import Validators
@@ -216,7 +228,8 @@ class SecurityTester:
             try:
                 baseline = self.http_client.get(url, timeout=config.timeout)
                 baseline_data = {'text': baseline.text, 'status_code': baseline.status_code}
-            except:
+            except Exception as e:
+                self.logger.debug(f"Baseline request failed: {str(e)}")
                 baseline_data = {}
 
             # SQL Injection
@@ -244,8 +257,8 @@ class SecurityTester:
                                 payload
                             ))
                             break
-                except:
-                    pass
+                except Exception as e:
+                    self.logger.debug(f"SQLi test error: {str(e)}")
 
             # XSS
             xss_payloads = self.advanced_payloads.get_xss_payloads()
@@ -262,8 +275,8 @@ class SecurityTester:
                             payload
                         ))
                          break
-                except:
-                    pass
+                except Exception as e:
+                    self.logger.debug(f"XSS test error: {str(e)}")
 
             # Command Injection
             cmd_payloads = self.advanced_payloads.get_cmd_injection_payloads()
@@ -280,8 +293,8 @@ class SecurityTester:
                             payload
                         ))
                         break
-                except:
-                    pass
+                except Exception as e:
+                    self.logger.debug(f"Command injection test error: {str(e)}")
 
         return vulnerabilities
 
@@ -358,8 +371,8 @@ class SecurityTester:
                         ))
                         break
 
-                except:
-                    pass
+                except Exception as e:
+                    self.logger.debug(f"Invalid token test error: {str(e)}")
 
             # Test 2: Missing token
             try:
@@ -373,8 +386,8 @@ class SecurityTester:
                         "Endpoint accessible without authentication"
                     ))
 
-            except:
-                pass
+            except Exception as e:
+                self.logger.debug(f"Missing token test error: {str(e)}")
 
         except Exception as e:
             self.logger.debug(f"Token validation test error: {str(e)}")
@@ -440,8 +453,8 @@ class SecurityTester:
                             ))
                             break
 
-                    except:
-                        pass
+                    except Exception as e:
+                        self.logger.debug(f"Privilege escalation test error: {str(e)}")
 
         except Exception as e:
             self.logger.debug(f"Privilege escalation test error: {str(e)}")
@@ -477,8 +490,8 @@ class SecurityTester:
                         ))
                         break
 
-                except:
-                    pass
+                except Exception as e:
+                    self.logger.debug(f"CORS test error: {str(e)}")
 
         except Exception as e:
             self.logger.debug(f"CORS test error: {str(e)}")
@@ -537,8 +550,8 @@ class SecurityTester:
                             f"Redirected to external arbitrary domain: {location}"
                         ))
 
-                except:
-                    pass
+                except Exception as e:
+                    self.logger.debug(f"Unsafe redirect test error: {str(e)}")
 
         except Exception as e:
             self.logger.debug(f"Unsafe redirect test error: {str(e)}")

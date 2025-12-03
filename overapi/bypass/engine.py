@@ -1,9 +1,13 @@
 """Bypass techniques."""
 
-from typing import Dict, Any
+from typing import Dict, Any, List
+
 
 class BypassEngine:
+    """Engine for generating authentication and authorization bypass techniques."""
+
     def __init__(self):
+        """Initialize bypass engine with all available techniques."""
         self.techniques = [
             self.header_poisoning,
             self.verb_tampering,
@@ -12,14 +16,14 @@ class BypassEngine:
             self.path_obfuscation
         ]
 
-    def generate_bypasses(self, original_request: Dict[str, Any]) -> list[Dict[str, Any]]:
+    def generate_bypasses(self, original_request: Dict[str, Any]) -> List[Dict[str, Any]]:
         """Generate modified requests to bypass controls."""
         bypasses = []
         for technique in self.techniques:
             bypasses.extend(technique(original_request))
         return bypasses
 
-    def header_poisoning(self, request: Dict[str, Any]) -> list[Dict[str, Any]]:
+    def header_poisoning(self, request: Dict[str, Any]) -> List[Dict[str, Any]]:
         headers = [
             {"X-Forwarded-For": "127.0.0.1"},
             {"X-Client-IP": "127.0.0.1"},
@@ -37,7 +41,7 @@ class BypassEngine:
             results.append(new_req)
         return results
 
-    def verb_tampering(self, request: Dict[str, Any]) -> list[Dict[str, Any]]:
+    def verb_tampering(self, request: Dict[str, Any]) -> List[Dict[str, Any]]:
         verbs = ["GET", "POST", "HEAD", "OPTIONS", "TRACE", "PUT", "DELETE", "PROPFIND", "PATCH"]
         results = []
         current_method = request.get('method', 'GET')
@@ -48,7 +52,7 @@ class BypassEngine:
                 results.append(new_req)
         return results
 
-    def content_type_confusion(self, request: Dict[str, Any]) -> list[Dict[str, Any]]:
+    def content_type_confusion(self, request: Dict[str, Any]) -> List[Dict[str, Any]]:
         types = [
             "application/json",
             "application/xml",
@@ -65,7 +69,7 @@ class BypassEngine:
             results.append(new_req)
         return results
 
-    def auth_bypass(self, request: Dict[str, Any]) -> list[Dict[str, Any]]:
+    def auth_bypass(self, request: Dict[str, Any]) -> List[Dict[str, Any]]:
         # Remove auth headers or modify them
         results = []
 
@@ -85,7 +89,7 @@ class BypassEngine:
 
         return results
 
-    def path_obfuscation(self, request: Dict[str, Any]) -> list[Dict[str, Any]]:
+    def path_obfuscation(self, request: Dict[str, Any]) -> List[Dict[str, Any]]:
         path = request.get('path', '')
         if not path:
              return []
