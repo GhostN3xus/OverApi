@@ -373,15 +373,102 @@ class Orchestrator:
                     bypasses = self.bypass.generate_bypasses(original_request)
                     bypass_count += len(bypasses)
 
-                    # Test bypasses (simplified - extend as needed)
+                    # Get baseline response first
+                    from urllib.parse import urljoin
+                    url = urljoin(self.config.url, original_request['path'])
+
+                    try:
+                        baseline_resp = self.http_client.request(
+                            method=original_request['method'],
+                            url=url,
+                            headers=original_request.get('headers', {}),
+                            timeout=self.config.timeout
+                        )
+                        baseline_status = baseline_resp.status_code
+                        baseline_text = baseline_resp.text
+                    except Exception as e:
+                        self.logger.debug(f"Baseline request failed: {str(e)}")
+                        continue
+
+                    # Test bypasses - look for different responses
                     for bypass in bypasses:
-                        # Execute bypass test here
-                        pass
+                        try:
+                            bypass_url = urljoin(self.config.url, bypass.get('path', original_request['path']))
+
+                            bypass_resp = self.http_client.request(
+                                method=bypass.get('method', original_request['method']),
+                                url=bypass_url,
+                                headers=bypass.get('headers', {}),
+                                timeout=self.config.timeout
+                            )
+
+                            # Check if bypass changed the response significantly
+                            # Case 1: Previously blocked (401/403) now accessible
+                            if baseline_status in [401, 403] and bypass_resp.status_code in [200, 201]:
+                                self.context.vulnerabilities.append({
+                                    "type": "Authentication/Authorization Bypass",
+                                    "severity": "Critical",
+                                    "endpoint": url,
+                                    "evidence": f"Bypass technique allowed access. "
+                                                f"Baseline: {baseline_status}, Bypass: {bypass_resp.status_code}",
+                                    "technique": self._identify_bypass_technique(bypass, original_request),
+                                    "owasp_category": "API2:2023 - Broken Authentication",
+                                    "cwe": "CWE-287",
+                                    "remediation": "Implement proper authentication and authorization checks that cannot be bypassed with header manipulation or HTTP verb changes."
+                                })
+
+                            # Case 2: Different content returned (potential bypass)
+                            elif bypass_resp.status_code == 200 and baseline_status == 200:
+                                # Check if content is significantly different
+                                if len(bypass_resp.text) != len(baseline_text):
+                                    diff_ratio = abs(len(bypass_resp.text) - len(baseline_text)) / max(len(baseline_text), 1)
+                                    if diff_ratio > 0.3:  # 30% different
+                                        self.context.vulnerabilities.append({
+                                            "type": "Access Control Bypass",
+                                            "severity": "High",
+                                            "endpoint": url,
+                                            "evidence": f"Bypass technique changed response content significantly ({diff_ratio*100:.1f}% different)",
+                                            "technique": self._identify_bypass_technique(bypass, original_request),
+                                            "owasp_category": "API1:2023 - Broken Object Level Authorization",
+                                            "cwe": "CWE-639",
+                                            "remediation": "Ensure access controls cannot be bypassed through HTTP method changes, header manipulation, or path obfuscation."
+                                        })
+
+                        except Exception as e:
+                            self.logger.debug(f"Bypass execution error: {str(e)}")
+                            continue
 
                 except Exception as e:
                     self.logger.debug(f"Bypass test error for {endpoint.get('path')}: {str(e)}")
 
-            self.logger.info(f"Bypass testing: {bypass_count} variations generated")
+            self.logger.info(f"Bypass testing: {bypass_count} variations generated and tested")
 
         except Exception as e:
             self.logger.error(f"Bypass testing error: {str(e)}")
+
+    def _identify_bypass_technique(self, bypass_request: dict, original_request: dict) -> str:
+        """Identify which bypass technique was used."""
+        # Check for header poisoning
+        bypass_headers = bypass_request.get('headers', {})
+        original_headers = original_request.get('headers', {})
+
+        if any(h in bypass_headers for h in ['X-Forwarded-For', 'X-Client-IP', 'X-Remote-IP']):
+            return "Header Poisoning (IP spoofing)"
+
+        # Check for verb tampering
+        if bypass_request.get('method') != original_request.get('method'):
+            return f"HTTP Verb Tampering ({original_request.get('method')} -> {bypass_request.get('method')})"
+
+        # Check for content type confusion
+        if bypass_headers.get('Content-Type') != original_headers.get('Content-Type'):
+            return f"Content-Type Confusion ({bypass_headers.get('Content-Type')})"
+
+        # Check for auth bypass
+        if 'Authorization' in original_headers and 'Authorization' not in bypass_headers:
+            return "Authorization Header Removal"
+
+        # Check for path obfuscation
+        if bypass_request.get('path') != original_request.get('path'):
+            return f"Path Obfuscation ({bypass_request.get('path')})"
+
+        return "Unknown bypass technique"

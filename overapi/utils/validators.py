@@ -372,17 +372,28 @@ class Validators:
             header = json.loads(base64.urlsafe_b64decode(parts[0] + '=='))
             payload = json.loads(base64.urlsafe_b64decode(parts[1] + '=='))
 
-            # Check for "none" algorithm
-            if header.get('alg') == 'none':
-                vulnerabilities.append('JWT uses "none" algorithm')
+            # Check for "none" algorithm (critical vulnerability)
+            if header.get('alg', '').lower() == 'none':
+                vulnerabilities.append('JWT uses "none" algorithm - allows token forgery')
 
-            # Check for weak algorithms
-            if header.get('alg') in ['HS256', 'HS384', 'HS512']:
-                vulnerabilities.append(f'Weak algorithm: {header.get("alg")}')
-
-            # Check for missing expiration
+            # Check for missing expiration (tokens should expire)
             if 'exp' not in payload:
-                vulnerabilities.append('JWT missing expiration')
+                vulnerabilities.append('JWT missing expiration claim - token never expires')
+
+            # Check for expired tokens still being accepted (would need additional testing)
+            # Check for very long expiration times
+            if 'exp' in payload:
+                try:
+                    import time as time_module
+                    exp_time = int(payload['exp'])
+                    current_time = int(time_module.time())
+                    time_diff = exp_time - current_time
+
+                    # If expiration is more than 1 year in future, flag it
+                    if time_diff > 365 * 24 * 60 * 60:
+                        vulnerabilities.append(f'JWT has very long expiration ({time_diff // (24*60*60)} days)')
+                except:
+                    pass
 
             # Check for key disclosure in response
             if response and header.get('alg', '').startswith('HS'):
@@ -425,7 +436,7 @@ class Validators:
     @staticmethod
     def is_sensitive_data_exposure(response: str) -> Tuple[bool, List[str]]:
         """
-        Check if response contains sensitive data.
+        Check if response contains sensitive data with improved accuracy.
 
         Args:
             response: Response content
@@ -434,24 +445,51 @@ class Validators:
             Tuple of (found_sensitive_data, data_types_found)
         """
         found_types = []
+
+        # More precise patterns that avoid documentation false positives
         sensitive_patterns = {
-            'password': r"(?i)password\s*[:=\s\"\']+[^\s\"\']{6,}",
-            'api_key': r"(?i)api[_-]?key\s*[:=\s\"\']+[a-zA-Z0-9]{20,}",
-            'private_key': r"(?i)private[_-]?key\s*[:=]|-----BEGIN.*PRIVATE",
-            'secret': r"(?i)secret\s*[:=\s\"\']+[^\s\"\']{8,}",
-            'token': r"(?i)(token|auth|bearer)\s*[:=\s\"\']+[a-zA-Z0-9\._\-]{20,}",
-            'credit_card': r"\b\d{4}[_\-\s]?\d{4}[_\-\s]?\d{4}[_\-\s]?\d{4}\b",
-            'ssn': r"\b\d{3}[_\-]?\d{2}[_\-]?\d{4}\b",
-            'phone': r"(?i)phone\s*[:=\s\"\']+\+?[\d\s\-\(\)]{10,}",
-            'email': r"\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b",
-            'database_url': r"(?i)(mysql|postgres|mongodb|redis)://[^\s\"\']+",
-            'aws_key': r"AKIA[0-9A-Z]{16}",
-            'github_token': r"ghp_[a-zA-Z0-9]{36,255}",
+            # Real API keys (not examples)
+            'api_key': r"(?i)api[_-]?key[\"']?\s*[:=]\s*[\"']([a-zA-Z0-9]{32,})[\"']",
+            # Private keys (actual PEM format)
+            'private_key': r"-----BEGIN (RSA |EC |DSA )?PRIVATE KEY-----",
+            # Real secrets (not placeholders)
+            'secret': r"(?i)(secret|password)[\"']?\s*[:=]\s*[\"'](?!example|test|demo|your_|xxx|placeholder)([a-zA-Z0-9!@#$%^&*]{12,})[\"']",
+            # Real authentication tokens
+            'auth_token': r"(?i)(auth_token|bearer|access_token)[\"']?\s*[:=]\s*[\"']([a-zA-Z0-9\._\-]{40,})[\"']",
+            # Credit card numbers (with Luhn check would be better)
+            'credit_card': r"\b(?:4[0-9]{12}(?:[0-9]{3})?|5[1-5][0-9]{14}|3[47][0-9]{13}|3(?:0[0-5]|[68][0-9])[0-9]{11}|6(?:011|5[0-9]{2})[0-9]{12})\b",
+            # SSN (actual pattern)
+            'ssn': r"\b(?!000|666|9\d{2})\d{3}-(?!00)\d{2}-(?!0000)\d{4}\b",
+            # Database connection strings
+            'database_url': r"(?i)(mysql|postgres|mongodb|redis)://[a-zA-Z0-9_]+:[^\s@\"']+@[^\s\"']+",
+            # AWS keys
+            'aws_access_key': r"\b(AKIA|A3T|AGPA|AIDA|AROA|AIPA|ANPA|ANVA|ASIA)[0-9A-Z]{16}\b",
+            'aws_secret_key': r"(?i)aws_secret.*[\"']([a-zA-Z0-9/+=]{40})[\"']",
+            # GitHub tokens
+            'github_token': r"(ghp|gho|ghu|ghs|ghr)_[a-zA-Z0-9]{36,}",
+            # Private SSH keys
+            'ssh_key': r"-----BEGIN OPENSSH PRIVATE KEY-----",
+            # JWT tokens (actual, not examples)
+            'jwt': r"eyJ[a-zA-Z0-9_-]{10,}\.eyJ[a-zA-Z0-9_-]{10,}\.[a-zA-Z0-9_-]{10,}",
         }
 
+        # Check for each sensitive pattern
         for data_type, pattern in sensitive_patterns.items():
-            if re.search(pattern, response):
-                found_types.append(data_type)
+            matches = re.findall(pattern, response)
+            if matches:
+                # Additional validation: filter out common placeholders
+                placeholders = ['example', 'test', 'demo', 'sample', 'your_', 'xxx', 'placeholder', '123456']
+                real_matches = []
+
+                for match in matches:
+                    match_str = match if isinstance(match, str) else match[0] if isinstance(match, tuple) else str(match)
+                    is_placeholder = any(p in match_str.lower() for p in placeholders)
+
+                    if not is_placeholder:
+                        real_matches.append(match_str)
+
+                if real_matches:
+                    found_types.append(data_type)
 
         return len(found_types) > 0, found_types
 
