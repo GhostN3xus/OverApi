@@ -59,13 +59,17 @@ class HTTPClient:
     async def _get_client(self) -> httpx.AsyncClient:
         """Get or create async client instance."""
         if self._client is None:
-            self._client = httpx.AsyncClient(
-                verify=self.verify,
-                proxies=self.proxies,
-                timeout=httpx.Timeout(self.timeout),
-                follow_redirects=True,
-                limits=httpx.Limits(max_keepalive_connections=100, max_connections=1000)
-            )
+            # httpx uses 'proxy' not 'proxies'
+            client_kwargs = {
+                "verify": self.verify,
+                "timeout": httpx.Timeout(self.timeout),
+                "follow_redirects": True,
+                "limits": httpx.Limits(max_keepalive_connections=100, max_connections=1000)
+            }
+            if self.proxies:
+                client_kwargs["proxy"] = self.proxies
+
+            self._client = httpx.AsyncClient(**client_kwargs)
         return self._client
 
     async def get(self, url: str, headers: Dict[str, str] = None,
