@@ -42,9 +42,18 @@ class WebSocketScanner:
             custom_ca_path=custom_ca_path
         )
 
-    def discover_endpoints(self) -> List[Endpoint]:
+    async def discover_endpoints(self) -> List[Endpoint]:
         """
-        Discover WebSocket endpoints (standardized interface).
+        Discover WebSocket endpoints asynchronously (wrapper for sync method).
+
+        Returns:
+            List of discovered endpoints
+        """
+        return await asyncio.to_thread(self._discover_endpoints_sync)
+
+    def _discover_endpoints_sync(self) -> List[Endpoint]:
+        """
+        Discover WebSocket endpoints (synchronous implementation).
 
         Returns:
             List of discovered endpoints

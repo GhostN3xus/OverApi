@@ -1,8 +1,8 @@
-"""Enhanced Scanner Orchestrator with full integration."""
+"""Enhanced Scanner Orchestrator with full async integration and dependency management."""
 
 import asyncio
+import networkx as nx
 from typing import List, Dict, Any
-from concurrent.futures import ThreadPoolExecutor, as_completed
 from urllib.parse import urljoin
 
 from overapi.core.logger import Logger
@@ -24,7 +24,7 @@ from overapi.scanners.business_logic import BusinessLogicScanner
 
 
 class Orchestrator:
-    """Enhanced orchestrator with complete scanner integration."""
+    """Enhanced orchestrator with complete async scanner integration."""
 
     def __init__(self, config: Config, logger: Logger = None):
         """Initialize orchestrator with all scanners."""
@@ -65,34 +65,65 @@ class Orchestrator:
         self.ssrf_tester = None
         self.business_logic_scanner = None
 
-        # Thread pool for parallel scanning
-        self.thread_pool = ThreadPoolExecutor(max_workers=config.threads)
+        # Concurrency limit (using semaphore instead of thread pool)
+        self.concurrency = config.threads
+        self.semaphore = asyncio.Semaphore(self.concurrency)
+
+        # Build dependency graph for test execution order
+        self.dependency_graph = self._build_dependency_graph()
+
+    def _build_dependency_graph(self) -> nx.DiGraph:
+        """
+        Build directed acyclic graph (DAG) of test dependencies using networkx.
+
+        Returns:
+            NetworkX DiGraph with test dependencies
+        """
+        graph = nx.DiGraph()
+
+        # Add nodes for each test phase
+        phases = ["api_detection", "endpoint_discovery", "authentication", "authorization", "injection"]
+
+        for phase in phases:
+            graph.add_node(phase)
+
+        # Define dependencies - tests run in topological order
+        graph.add_edge("api_detection", "endpoint_discovery")
+        graph.add_edge("endpoint_discovery", "authentication")
+        graph.add_edge("authentication", "authorization")
+        graph.add_edge("authorization", "injection")
+
+        return graph
 
     def scan(self) -> ScanContext:
-        """Run the full scan pipeline with complete integration."""
+        """Run the full scan pipeline with complete integration (sync wrapper)."""
+        return asyncio.run(self.scan_async())
+
+    async def scan_async(self) -> ScanContext:
+        """Run the full async scan pipeline with complete integration."""
         self.logger.info("="*60)
         self.logger.info("OverApi Enterprise - Starting Comprehensive Scan")
         self.logger.info("="*60)
 
         try:
             # Phase 1: API Type Detection
-            self._identify_api_type()
+            await self._identify_api_type()
 
             # Phase 2: Endpoint Discovery
-            self._discover_endpoints()
+            await self._discover_endpoints()
 
             # Phase 3: Fuzzing (if enabled)
             if self.config.enable_fuzzing:
-                self._fuzz_endpoints()
+                await self._fuzz_endpoints()
 
             # Phase 4: Security Testing
-            self._run_security_tests()
+            await self._run_security_tests()
 
             # Phase 5: Specialized Vulnerability Scans
-            self._run_specialized_scans()
+            await self._run_specialized_scans()
 
             # Phase 6: Bypass Techniques (if enabled)
-            self._run_bypass_tests()
+            await self._run_bypass_tests()
 
             self.context.status = ScanStatus.COMPLETED
             self.logger.success(f"\nScan completed! Found {len(self.context.vulnerabilities)} vulnerabilities")
@@ -114,18 +145,18 @@ class Orchestrator:
             self.logger.debug(f"Traceback:", exc_info=True)
             self.context.status = ScanStatus.FAILED
         finally:
-            self.thread_pool.shutdown(wait=True)
+            await self.http_client.close()
 
         return self.context
 
-    def _identify_api_type(self):
+    async def _identify_api_type(self):
         """Identify API type using robust detection."""
         self.logger.info("\n[Phase 1] API Type Detection")
         self.logger.info("-" * 60)
 
         if self.context.api_type == "auto":
             try:
-                detected_types, details = self.api_detector.detect(
+                detected_types, details = await self.api_detector.detect(
                     self.config.url,
                     timeout=self.config.timeout
                 )
@@ -148,7 +179,7 @@ class Orchestrator:
         else:
             self.logger.info(f"Using configured API type: {self.context.api_type}")
 
-    def _discover_endpoints(self):
+    async def _discover_endpoints(self):
         """Discover endpoints for all detected API types."""
         self.logger.info("\n[Phase 2] Endpoint Discovery")
         self.logger.info("-" * 60)
@@ -166,23 +197,23 @@ class Orchestrator:
                 try:
                     if api_type == "rest":
                         scanner = RestScanner(self.context, self.config, self.logger)
-                        scanner.discover_endpoints()
+                        await scanner.discover_endpoints()
 
                     elif api_type == "graphql":
                         scanner = GraphQLScanner(self.context, self.config, self.logger)
-                        scanner.discover_endpoints()
+                        await scanner.discover_endpoints()
 
                     elif api_type == "soap":
                         scanner = SOAPScanner(self.context, self.config, self.logger)
-                        scanner.discover_endpoints()
+                        await scanner.discover_endpoints()
 
                     elif api_type == "grpc":
                         scanner = GRPCScanner(self.context, self.config, self.logger)
-                        scanner.discover_endpoints()
+                        await scanner.discover_endpoints()
 
                     elif api_type == "websocket":
                         scanner = WebSocketScanner(self.context, self.config, self.logger)
-                        scanner.discover_endpoints()
+                        await scanner.discover_endpoints()
 
                 except Exception as e:
                     self.logger.error(f"Error discovering {api_type} endpoints: {str(e)}")
@@ -198,8 +229,8 @@ class Orchestrator:
         except Exception as e:
             raise ScanningError(f"Endpoint discovery failed: {str(e)}")
 
-    def _fuzz_endpoints(self):
-        """Fuzz discovered endpoints with thread pool."""
+    async def _fuzz_endpoints(self):
+        """Fuzz discovered endpoints with async parallelization."""
         self.logger.info("\n[Phase 3] Endpoint Fuzzing")
         self.logger.info("-" * 60)
 
@@ -220,8 +251,8 @@ class Orchestrator:
         except Exception as e:
             self.logger.error(f"Fuzzing phase error: {str(e)}")
 
-    def _run_security_tests(self):
-        """Run security tests on all endpoints using thread pool."""
+    async def _run_security_tests(self):
+        """Run security tests on all endpoints using async parallelization."""
         self.logger.info("\n[Phase 4] Security Vulnerability Testing")
         self.logger.info("-" * 60)
 
@@ -229,50 +260,50 @@ class Orchestrator:
             self.logger.warning("No endpoints to test")
             return
 
-        # Use thread pool for parallel testing
-        futures = []
+        # Use asyncio.gather for parallel testing
+        tasks = []
         for endpoint in self.context.endpoints:
-            future = self.thread_pool.submit(self._test_endpoint, endpoint)
-            futures.append(future)
+            task = self._test_endpoint_async(endpoint)
+            tasks.append(task)
+
+        # Run all tasks concurrently
+        results = await asyncio.gather(*tasks, return_exceptions=True)
 
         # Collect results
-        completed = 0
-        for future in as_completed(futures):
-            try:
-                vulnerabilities = future.result()
-                if vulnerabilities:
-                    self.context.vulnerabilities.extend(vulnerabilities)
-                completed += 1
-                if completed % 10 == 0:
-                    self.logger.info(f"Progress: {completed}/{len(self.context.endpoints)} endpoints tested")
-            except Exception as e:
-                self.logger.error(f"Security test error: {str(e)}")
+        for i, result in enumerate(results):
+            if isinstance(result, Exception):
+                self.logger.error(f"Security test error: {str(result)}")
+            elif result:
+                self.context.vulnerabilities.extend(result)
+
+            if (i + 1) % 10 == 0:
+                self.logger.info(f"Progress: {i + 1}/{len(self.context.endpoints)} endpoints tested")
 
         self.logger.success(f"Security testing completed: {len(self.context.vulnerabilities)} vulnerabilities found")
 
-    def _test_endpoint(self, endpoint: Dict) -> List[Dict]:
-        """Test single endpoint for vulnerabilities."""
-        try:
-            return self.security_tester.test_endpoint(endpoint, self.config)
-        except Exception as e:
-            self.logger.debug(f"Error testing endpoint {endpoint.get('path')}: {str(e)}")
-            return []
+    async def _test_endpoint_async(self, endpoint: Dict) -> List[Dict]:
+        """Test single endpoint for vulnerabilities with semaphore."""
+        async with self.semaphore:
+            try:
+                return await self.security_tester.test_endpoint_async(endpoint, self.config)
+            except Exception as e:
+                self.logger.debug(f"Error testing endpoint {endpoint.get('path')}: {str(e)}")
+                return []
 
-    def _run_specialized_scans(self):
+    async def _run_specialized_scans(self):
         """Run specialized vulnerability scanners (JWT, SSRF, Business Logic)."""
         self.logger.info("\n[Phase 5] Specialized Vulnerability Scans")
         self.logger.info("-" * 60)
 
-        # JWT Analysis
-        self._run_jwt_analysis()
+        # Run all specialized scans in parallel
+        await asyncio.gather(
+            self._run_jwt_analysis(),
+            self._run_ssrf_testing(),
+            self._run_business_logic_testing(),
+            return_exceptions=True
+        )
 
-        # SSRF Testing
-        self._run_ssrf_testing()
-
-        # Business Logic Testing
-        self._run_business_logic_testing()
-
-    def _run_jwt_analysis(self):
+    async def _run_jwt_analysis(self):
         """Run JWT vulnerability analysis."""
         try:
             self.logger.info("Running JWT vulnerability analysis...")
@@ -287,7 +318,7 @@ class Orchestrator:
             )
 
             # Scan for JWT vulnerabilities
-            jwt_vulns = asyncio.run(self.jwt_analyzer.scan())
+            jwt_vulns = await self.jwt_analyzer.scan()
 
             # Convert to standard format and add to context
             for vuln in jwt_vulns:
@@ -298,7 +329,7 @@ class Orchestrator:
         except Exception as e:
             self.logger.error(f"JWT analysis error: {str(e)}")
 
-    def _run_ssrf_testing(self):
+    async def _run_ssrf_testing(self):
         """Run SSRF vulnerability testing."""
         try:
             self.logger.info("Running SSRF vulnerability testing...")
@@ -319,7 +350,7 @@ class Orchestrator:
             ]
 
             # Scan for SSRF vulnerabilities
-            ssrf_vulns = asyncio.run(self.ssrf_tester.scan(test_endpoints))
+            ssrf_vulns = await self.ssrf_tester.scan(test_endpoints)
 
             # Convert to standard format and add to context
             for vuln in ssrf_vulns:
@@ -330,7 +361,7 @@ class Orchestrator:
         except Exception as e:
             self.logger.error(f"SSRF testing error: {str(e)}")
 
-    def _run_business_logic_testing(self):
+    async def _run_business_logic_testing(self):
         """Run business logic vulnerability testing."""
         try:
             self.logger.info("Running business logic vulnerability testing...")
@@ -351,7 +382,7 @@ class Orchestrator:
             ]
 
             # Scan for business logic vulnerabilities
-            bl_vulns = asyncio.run(self.business_logic_scanner.scan(test_endpoints))
+            bl_vulns = await self.business_logic_scanner.scan(test_endpoints)
 
             # Convert to standard format and add to context
             for vuln in bl_vulns:
@@ -362,7 +393,7 @@ class Orchestrator:
         except Exception as e:
             self.logger.error(f"Business logic testing error: {str(e)}")
 
-    def _run_bypass_tests(self):
+    async def _run_bypass_tests(self):
         """Run bypass technique testing."""
         self.logger.info("\n[Phase 6] Bypass Technique Testing")
         self.logger.info("-" * 60)
@@ -370,147 +401,157 @@ class Orchestrator:
         try:
             bypass_count = 0
 
-            for endpoint in self.context.endpoints[:20]:  # Limit for performance
-                try:
-                    # Convert endpoint to request format (handle both dict and Endpoint object)
-                    if hasattr(endpoint, 'method'):
-                        ep_method = endpoint.method
-                        ep_path = endpoint.path
-                    else:
-                        ep_method = endpoint.get("method", "GET")
-                        ep_path = endpoint.get("path", "")
+            # Limit to first 20 endpoints for performance
+            limited_endpoints = self.context.endpoints[:20]
+            tasks = []
 
-                    original_request = {
-                        "method": ep_method,
-                        "path": ep_path,
-                        "headers": self.config.custom_headers.copy()
-                    }
+            for endpoint in limited_endpoints:
+                task = self._test_bypass_async(endpoint)
+                tasks.append(task)
 
-                    # Generate bypass variations
-                    bypasses = self.bypass.generate_bypasses(original_request)
-                    bypass_count += len(bypasses)
+            # Run bypass tests in parallel
+            results = await asyncio.gather(*tasks, return_exceptions=True)
 
-                    # Get baseline response first
-                    url = urljoin(self.config.url, original_request['path'])
-
-                    try:
-                        if original_request['method'].upper() == 'GET':
-                            baseline_resp = self.http_client.get(
-                                url,
-                                headers=original_request.get('headers', {}),
-                                timeout=self.config.timeout
-                            )
-                        else:
-                            baseline_resp = self.http_client.post(
-                                url,
-                                headers=original_request.get('headers', {}),
-                                timeout=self.config.timeout
-                            )
-                        baseline_status = baseline_resp.status_code
-                        baseline_text = baseline_resp.text
-                    except Exception as e:
-                        self.logger.debug(f"Baseline request failed: {str(e)}")
-                        continue
-
-                    # Test bypasses - look for different responses
-                    for bypass in bypasses:
-                        try:
-                            bypass_url = urljoin(self.config.url, bypass.get('path', original_request['path']))
-                            bypass_method = bypass.get('method', original_request['method']).upper()
-
-                            if bypass_method == 'GET':
-                                bypass_resp = self.http_client.get(
-                                    bypass_url,
-                                    headers=bypass.get('headers', {}),
-                                    timeout=self.config.timeout
-                                )
-                            elif bypass_method == 'POST':
-                                bypass_resp = self.http_client.post(
-                                    bypass_url,
-                                    headers=bypass.get('headers', {}),
-                                    timeout=self.config.timeout
-                                )
-                            elif bypass_method == 'PUT':
-                                bypass_resp = self.http_client.put(
-                                    bypass_url,
-                                    headers=bypass.get('headers', {}),
-                                    timeout=self.config.timeout
-                                )
-                            elif bypass_method == 'DELETE':
-                                bypass_resp = self.http_client.delete(
-                                    bypass_url,
-                                    headers=bypass.get('headers', {}),
-                                    timeout=self.config.timeout
-                                )
-                            elif bypass_method == 'HEAD':
-                                bypass_resp = self.http_client.head(
-                                    bypass_url,
-                                    headers=bypass.get('headers', {}),
-                                    timeout=self.config.timeout
-                                )
-                            elif bypass_method == 'OPTIONS':
-                                bypass_resp = self.http_client.options(
-                                    bypass_url,
-                                    headers=bypass.get('headers', {}),
-                                    timeout=self.config.timeout
-                                )
-                            elif bypass_method == 'PATCH':
-                                bypass_resp = self.http_client.patch(
-                                    bypass_url,
-                                    headers=bypass.get('headers', {}),
-                                    timeout=self.config.timeout
-                                )
-                            else:
-                                # For other methods (TRACE, PROPFIND), use GET as fallback
-                                bypass_resp = self.http_client.get(
-                                    bypass_url,
-                                    headers=bypass.get('headers', {}),
-                                    timeout=self.config.timeout
-                                )
-
-                            # Check if bypass changed the response significantly
-                            # Case 1: Previously blocked (401/403) now accessible
-                            if baseline_status in [401, 403] and bypass_resp.status_code in [200, 201]:
-                                self.context.vulnerabilities.append({
-                                    "type": "Authentication/Authorization Bypass",
-                                    "severity": "Critical",
-                                    "endpoint": url,
-                                    "evidence": f"Bypass technique allowed access. "
-                                                f"Baseline: {baseline_status}, Bypass: {bypass_resp.status_code}",
-                                    "technique": self._identify_bypass_technique(bypass, original_request),
-                                    "owasp_category": "API2:2023 - Broken Authentication",
-                                    "cwe": "CWE-287",
-                                    "remediation": "Implement proper authentication and authorization checks that cannot be bypassed with header manipulation or HTTP verb changes."
-                                })
-
-                            # Case 2: Different content returned (potential bypass)
-                            elif bypass_resp.status_code == 200 and baseline_status == 200:
-                                # Check if content is significantly different
-                                if len(bypass_resp.text) != len(baseline_text):
-                                    diff_ratio = abs(len(bypass_resp.text) - len(baseline_text)) / max(len(baseline_text), 1)
-                                    if diff_ratio > 0.3:  # 30% different
-                                        self.context.vulnerabilities.append({
-                                            "type": "Access Control Bypass",
-                                            "severity": "High",
-                                            "endpoint": url,
-                                            "evidence": f"Bypass technique changed response content significantly ({diff_ratio*100:.1f}% different)",
-                                            "technique": self._identify_bypass_technique(bypass, original_request),
-                                            "owasp_category": "API1:2023 - Broken Object Level Authorization",
-                                            "cwe": "CWE-639",
-                                            "remediation": "Ensure access controls cannot be bypassed through HTTP method changes, header manipulation, or path obfuscation."
-                                        })
-
-                        except Exception as e:
-                            self.logger.debug(f"Bypass execution error: {str(e)}")
-                            continue
-
-                except Exception as e:
-                    self.logger.debug(f"Bypass test error for {ep_path}: {str(e)}")
+            for result in results:
+                if isinstance(result, Exception):
+                    self.logger.debug(f"Bypass test error: {str(result)}")
+                elif isinstance(result, int):
+                    bypass_count += result
 
             self.logger.info(f"Bypass testing: {bypass_count} variations generated and tested")
 
         except Exception as e:
             self.logger.error(f"Bypass testing error: {str(e)}")
+
+    async def _test_bypass_async(self, endpoint: Dict) -> int:
+        """Test bypass techniques for a single endpoint."""
+        try:
+            # Convert endpoint to request format
+            if hasattr(endpoint, 'method'):
+                ep_method = endpoint.method
+                ep_path = endpoint.path
+            else:
+                ep_method = endpoint.get("method", "GET")
+                ep_path = endpoint.get("path", "")
+
+            original_request = {
+                "method": ep_method,
+                "path": ep_path,
+                "headers": self.config.custom_headers.copy()
+            }
+
+            # Generate bypass variations
+            bypasses = self.bypass.generate_bypasses(original_request)
+
+            # Get baseline response first
+            url = urljoin(self.config.url, original_request['path'])
+
+            try:
+                if original_request['method'].upper() == 'GET':
+                    baseline_resp = await self.http_client.get(
+                        url,
+                        headers=original_request.get('headers', {})
+                    )
+                else:
+                    baseline_resp = await self.http_client.post(
+                        url,
+                        headers=original_request.get('headers', {})
+                    )
+                baseline_status = baseline_resp.status_code
+                baseline_text = baseline_resp.text
+            except Exception as e:
+                self.logger.debug(f"Baseline request failed: {str(e)}")
+                return 0
+
+            # Test bypasses - look for different responses
+            for bypass in bypasses:
+                try:
+                    bypass_url = urljoin(self.config.url, bypass.get('path', original_request['path']))
+                    bypass_method = bypass.get('method', original_request['method']).upper()
+
+                    if bypass_method == 'GET':
+                        bypass_resp = await self.http_client.get(
+                            bypass_url,
+                            headers=bypass.get('headers', {})
+                        )
+                    elif bypass_method == 'POST':
+                        bypass_resp = await self.http_client.post(
+                            bypass_url,
+                            headers=bypass.get('headers', {})
+                        )
+                    elif bypass_method == 'PUT':
+                        bypass_resp = await self.http_client.put(
+                            bypass_url,
+                            headers=bypass.get('headers', {})
+                        )
+                    elif bypass_method == 'DELETE':
+                        bypass_resp = await self.http_client.delete(
+                            bypass_url,
+                            headers=bypass.get('headers', {})
+                        )
+                    elif bypass_method == 'HEAD':
+                        bypass_resp = await self.http_client.head(
+                            bypass_url,
+                            headers=bypass.get('headers', {})
+                        )
+                    elif bypass_method == 'OPTIONS':
+                        bypass_resp = await self.http_client.options(
+                            bypass_url,
+                            headers=bypass.get('headers', {})
+                        )
+                    elif bypass_method == 'PATCH':
+                        bypass_resp = await self.http_client.patch(
+                            bypass_url,
+                            headers=bypass.get('headers', {})
+                        )
+                    else:
+                        # For other methods, use GET as fallback
+                        bypass_resp = await self.http_client.get(
+                            bypass_url,
+                            headers=bypass.get('headers', {})
+                        )
+
+                    # Check if bypass changed the response significantly
+                    # Case 1: Previously blocked (401/403) now accessible
+                    if baseline_status in [401, 403] and bypass_resp.status_code in [200, 201]:
+                        self.context.vulnerabilities.append({
+                            "type": "Authentication/Authorization Bypass",
+                            "severity": "Critical",
+                            "endpoint": url,
+                            "evidence": f"Bypass technique allowed access. "
+                                        f"Baseline: {baseline_status}, Bypass: {bypass_resp.status_code}",
+                            "technique": self._identify_bypass_technique(bypass, original_request),
+                            "owasp_category": "API2:2023 - Broken Authentication",
+                            "cwe": "CWE-287",
+                            "remediation": "Implement proper authentication and authorization checks that cannot be bypassed with header manipulation or HTTP verb changes."
+                        })
+
+                    # Case 2: Different content returned (potential bypass)
+                    elif bypass_resp.status_code == 200 and baseline_status == 200:
+                        # Check if content is significantly different
+                        if len(bypass_resp.text) != len(baseline_text):
+                            diff_ratio = abs(len(bypass_resp.text) - len(baseline_text)) / max(len(baseline_text), 1)
+                            if diff_ratio > 0.3:  # 30% different
+                                self.context.vulnerabilities.append({
+                                    "type": "Access Control Bypass",
+                                    "severity": "High",
+                                    "endpoint": url,
+                                    "evidence": f"Bypass technique changed response content significantly ({diff_ratio*100:.1f}% different)",
+                                    "technique": self._identify_bypass_technique(bypass, original_request),
+                                    "owasp_category": "API1:2023 - Broken Object Level Authorization",
+                                    "cwe": "CWE-639",
+                                    "remediation": "Ensure access controls cannot be bypassed through HTTP method changes, header manipulation, or path obfuscation."
+                                })
+
+                except Exception as e:
+                    self.logger.debug(f"Bypass execution error: {str(e)}")
+                    continue
+
+            return len(bypasses)
+
+        except Exception as e:
+            self.logger.debug(f"Bypass test error for {ep_path}: {str(e)}")
+            return 0
 
     def _identify_bypass_technique(self, bypass_request: dict, original_request: dict) -> str:
         """Identify which bypass technique was used."""

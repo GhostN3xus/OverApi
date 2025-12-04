@@ -1,1 +1,1 @@
-"""Test suite for OverApi."""
+"""OverApi test suite."""

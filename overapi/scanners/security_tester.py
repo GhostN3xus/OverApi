@@ -5,6 +5,7 @@ import re
 import time
 import difflib
 import hashlib
+import asyncio
 from typing import Dict, List, Any, Tuple, Optional
 from urllib.parse import urljoin
 
@@ -41,6 +42,20 @@ class SecurityTester:
         self.advanced_payloads = PayloadManager()
         self.advanced_flows = AdvancedFlows(logger=self.logger)
         self._baseline_cache = {}  # Cache for baseline responses
+
+    async def test_endpoint_async(self, endpoint: Dict, config: Config) -> List[Dict]:
+        """
+        Test endpoint for vulnerabilities asynchronously (wrapper for sync method).
+
+        Args:
+            endpoint: Endpoint configuration
+            config: Global config
+
+        Returns:
+            List of vulnerabilities found
+        """
+        # Run sync method in thread pool to avoid blocking
+        return await asyncio.to_thread(self.test_endpoint, endpoint, config)
 
     def test_endpoint(self, endpoint: Dict, config: Config) -> List[Dict]:
         """

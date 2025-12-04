@@ -1,10 +1,11 @@
-"""HTTP client for API communication with advanced SSL/TLS handling."""
+"""Async HTTP client for API communication with advanced SSL/TLS handling."""
 
-import requests
+import httpx
 import ssl
-from typing import Dict, Optional, Any, Tuple
+from typing import Dict, Optional, Any
 from urllib.parse import urljoin
 import json
+import asyncio
 
 from ..core.logger import Logger
 from ..core.exceptions import NetworkError
@@ -12,7 +13,7 @@ from .certificate_manager import CertificateManager
 
 
 class HTTPClient:
-    """Robust HTTP client with retry logic and error handling."""
+    """Robust async HTTP client with retry logic and error handling."""
 
     def __init__(self, logger: Logger = None, timeout: int = 30,
                  verify_ssl: bool = True, proxy: Optional[Dict] = None,
@@ -20,7 +21,7 @@ class HTTPClient:
                  certificate_pinning: Optional[Dict] = None,
                  suppress_warnings: bool = False):
         """
-        Initialize HTTP client with advanced SSL/TLS configuration.
+        Initialize async HTTP client with advanced SSL/TLS configuration.
 
         Args:
             logger: Logger instance
@@ -44,67 +45,72 @@ class HTTPClient:
         if suppress_warnings:
             self.cert_manager.suppress_insecure_warnings(suppress=True)
 
-        # Setup session with SSL configuration
-        self.session = requests.Session()
-        self._configure_ssl()
-
-        if proxy:
-            self.session.proxies.update(proxy)
-
-        self.max_retries = 3
-
-    def _configure_ssl(self) -> None:
-        """Configure SSL/TLS settings for the session."""
+        # Configure SSL verification
         if self.verify_ssl:
-            # Use custom CA bundle if provided, otherwise use certifi
-            self.session.verify = self.custom_ca_path or self.cert_manager.get_ca_bundle()
+            self.verify = self.custom_ca_path or self.cert_manager.get_ca_bundle()
         else:
-            self.session.verify = False
+            self.verify = False
             self.logger.warning("SSL verification disabled - this is insecure!")
 
-    def get(self, url: str, headers: Dict[str, str] = None,
-            params: Dict[str, str] = None, **kwargs) -> requests.Response:
-        """Make GET request."""
-        return self._request("GET", url, headers=headers, params=params, **kwargs)
+        self.proxies = proxy
+        self.max_retries = 3
+        self._client = None
 
-    def post(self, url: str, headers: Dict[str, str] = None,
-             data: Any = None, json_data: Dict = None, **kwargs) -> requests.Response:
-        """Make POST request."""
-        return self._request("POST", url, headers=headers, data=data, json=json_data, **kwargs)
+    async def _get_client(self) -> httpx.AsyncClient:
+        """Get or create async client instance."""
+        if self._client is None:
+            self._client = httpx.AsyncClient(
+                verify=self.verify,
+                proxies=self.proxies,
+                timeout=httpx.Timeout(self.timeout),
+                follow_redirects=True,
+                limits=httpx.Limits(max_keepalive_connections=100, max_connections=1000)
+            )
+        return self._client
 
-    def put(self, url: str, headers: Dict[str, str] = None,
-            data: Any = None, json_data: Dict = None, **kwargs) -> requests.Response:
-        """Make PUT request."""
-        return self._request("PUT", url, headers=headers, data=data, json=json_data, **kwargs)
+    async def get(self, url: str, headers: Dict[str, str] = None,
+            params: Dict[str, str] = None, **kwargs) -> httpx.Response:
+        """Make async GET request."""
+        return await self._request("GET", url, headers=headers, params=params, **kwargs)
 
-    def patch(self, url: str, headers: Dict[str, str] = None,
-              data: Any = None, json_data: Dict = None, **kwargs) -> requests.Response:
-        """Make PATCH request."""
-        return self._request("PATCH", url, headers=headers, data=data, json=json_data, **kwargs)
+    async def post(self, url: str, headers: Dict[str, str] = None,
+             data: Any = None, json_data: Dict = None, **kwargs) -> httpx.Response:
+        """Make async POST request."""
+        return await self._request("POST", url, headers=headers, data=data, json=json_data, **kwargs)
 
-    def delete(self, url: str, headers: Dict[str, str] = None, **kwargs) -> requests.Response:
-        """Make DELETE request."""
-        return self._request("DELETE", url, headers=headers, **kwargs)
+    async def put(self, url: str, headers: Dict[str, str] = None,
+            data: Any = None, json_data: Dict = None, **kwargs) -> httpx.Response:
+        """Make async PUT request."""
+        return await self._request("PUT", url, headers=headers, data=data, json=json_data, **kwargs)
 
-    def head(self, url: str, headers: Dict[str, str] = None, **kwargs) -> requests.Response:
-        """Make HEAD request."""
-        return self._request("HEAD", url, headers=headers, **kwargs)
+    async def patch(self, url: str, headers: Dict[str, str] = None,
+              data: Any = None, json_data: Dict = None, **kwargs) -> httpx.Response:
+        """Make async PATCH request."""
+        return await self._request("PATCH", url, headers=headers, data=data, json=json_data, **kwargs)
 
-    def options(self, url: str, headers: Dict[str, str] = None, **kwargs) -> requests.Response:
-        """Make OPTIONS request."""
-        return self._request("OPTIONS", url, headers=headers, **kwargs)
+    async def delete(self, url: str, headers: Dict[str, str] = None, **kwargs) -> httpx.Response:
+        """Make async DELETE request."""
+        return await self._request("DELETE", url, headers=headers, **kwargs)
 
-    def _request(self, method: str, url: str, headers: Dict[str, str] = None,
-                 retry: int = 0, **kwargs) -> requests.Response:
+    async def head(self, url: str, headers: Dict[str, str] = None, **kwargs) -> httpx.Response:
+        """Make async HEAD request."""
+        return await self._request("HEAD", url, headers=headers, **kwargs)
+
+    async def options(self, url: str, headers: Dict[str, str] = None, **kwargs) -> httpx.Response:
+        """Make async OPTIONS request."""
+        return await self._request("OPTIONS", url, headers=headers, **kwargs)
+
+    async def _request(self, method: str, url: str, headers: Dict[str, str] = None,
+                 retry: int = 0, **kwargs) -> httpx.Response:
         """
-        Make HTTP request with advanced retry logic and SSL error handling.
+        Make async HTTP request with advanced retry logic and SSL error handling.
 
         Args:
             method: HTTP method
             url: Target URL
             headers: Custom headers
             retry: Current retry attempt
-            **kwargs: Additional arguments for requests
+            **kwargs: Additional arguments for httpx
 
         Returns:
             Response object
@@ -113,44 +119,45 @@ class HTTPClient:
             NetworkError: For network-related failures
         """
         try:
-            kwargs['timeout'] = kwargs.get('timeout', self.timeout)
-            kwargs['allow_redirects'] = kwargs.get('allow_redirects', True)
-
-            response = self.session.request(method, url, headers=headers, **kwargs)
+            client = await self._get_client()
+            response = await client.request(method, url, headers=headers, **kwargs)
             return response
 
-        except requests.exceptions.SSLError as e:
-            error_msg = f"SSL certificate verification failed for {url}: {str(e)}"
-            self.logger.error(error_msg)
-
-            # Check if it's a certificate pinning failure
-            if "certificate verify failed" in str(e).lower():
+        except httpx.ConnectError as e:
+            if "certificate verify failed" in str(e).lower() or "ssl" in str(e).lower():
+                error_msg = f"SSL certificate verification failed for {url}: {str(e)}"
+                self.logger.error(error_msg)
                 raise NetworkError(f"Certificate verification failed: {error_msg}")
 
-            # For self-signed or expired certs
-            if "self signed certificate" in str(e).lower() or "certificate verify failed" in str(e).lower():
-                raise NetworkError(f"Invalid certificate: {error_msg}")
-
-            raise NetworkError(error_msg)
-
-        except requests.exceptions.Timeout:
-            if retry < self.max_retries:
-                self.logger.warning(f"Timeout on {method} {url}, retrying... ({retry + 1}/{self.max_retries})")
-                return self._request(method, url, headers=headers, retry=retry + 1, **kwargs)
-            raise NetworkError(f"Timeout on {method} {url} after {self.max_retries} retries")
-
-        except requests.exceptions.ConnectionError as e:
             if retry < self.max_retries:
                 self.logger.warning(f"Connection error on {method} {url}, retrying... ({retry + 1}/{self.max_retries})")
-                return self._request(method, url, headers=headers, retry=retry + 1, **kwargs)
+                await asyncio.sleep(0.5 * (retry + 1))  # Exponential backoff
+                return await self._request(method, url, headers=headers, retry=retry + 1, **kwargs)
             raise NetworkError(f"Connection error on {method} {url} after {self.max_retries} retries: {str(e)}")
 
-        except requests.exceptions.RequestException as e:
+        except httpx.TimeoutException:
+            if retry < self.max_retries:
+                self.logger.warning(f"Timeout on {method} {url}, retrying... ({retry + 1}/{self.max_retries})")
+                await asyncio.sleep(0.5 * (retry + 1))
+                return await self._request(method, url, headers=headers, retry=retry + 1, **kwargs)
+            raise NetworkError(f"Timeout on {method} {url} after {self.max_retries} retries")
+
+        except httpx.HTTPError as e:
             raise NetworkError(f"HTTP request failed for {method} {url}: {str(e)}")
 
         except Exception as e:
             raise NetworkError(f"Unexpected error during HTTP request to {url}: {str(e)}")
 
-    def close(self):
-        """Close session."""
-        self.session.close()
+    async def close(self):
+        """Close async client."""
+        if self._client:
+            await self._client.aclose()
+            self._client = None
+
+    async def __aenter__(self):
+        """Async context manager entry."""
+        return self
+
+    async def __aexit__(self, exc_type, exc_val, exc_tb):
+        """Async context manager exit."""
+        await self.close()
