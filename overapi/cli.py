@@ -100,21 +100,29 @@ def main():
         handle_scan(args)
     elif args.command == 'gui':
         print_banner()
-        # TODO: integrate TUI launch
-        print("TUI mode requires 'textual' and 'rich' libraries.")
+        print("Launching GUI interface...")
         try:
+            import tkinter as tk
             from overapi.gui.app import OverApiApp
-            from overapi.core.config import Config
-            from overapi.scanners.orchestrator import Orchestrator
 
-            # Temporary: prompt for URL
-            url = input("Enter Target URL: ")
-            config = Config(url=url)
-            orchestrator = Orchestrator(config)
-            app = OverApiApp(orchestrator)
-            app.run()
-        except ImportError:
-            print("Error: TUI dependencies missing. Install textual and rich.")
+            # Create Tkinter root window
+            root = tk.Tk()
+
+            # Create and run application
+            app = OverApiApp(root)
+            root.mainloop()
+
+        except ImportError as e:
+            if 'tkinter' in str(e).lower() or '_tkinter' in str(e).lower():
+                print("Error: Tkinter is not installed.")
+                print("\nPlease install Tkinter:")
+                print("  Ubuntu/Debian: sudo apt-get install python3-tk")
+                print("  macOS: brew install python-tk")
+                print("  Windows: Tkinter is included with Python installer")
+            else:
+                print(f"Error: {e}")
+        except Exception as e:
+            print(f"Error launching GUI: {e}")
     elif args.command == 'payloads':
         if args.payload_cmd == 'list':
             from overapi.payloads import get_payloads
