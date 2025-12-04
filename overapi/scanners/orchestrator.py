@@ -47,6 +47,16 @@ class Orchestrator:
         self.fuzzer = FuzzingEngine(self.context, self.logger)
         self.bypass = BypassEngine()
 
+        # Initialize HTTP client for bypass testing
+        from overapi.utils.http_client import HTTPClient
+        self.http_client = HTTPClient(
+            logger=self.logger,
+            timeout=config.timeout,
+            verify_ssl=config.verify_ssl,
+            proxy=config.proxy.get_proxies() if config.proxy else None,
+            custom_ca_path=config.custom_ca_path
+        )
+
         # Initialize vulnerability scanners
         self.security_tester = SecurityTester(logger=self.logger)
 
@@ -362,10 +372,17 @@ class Orchestrator:
 
             for endpoint in self.context.endpoints[:20]:  # Limit for performance
                 try:
-                    # Convert endpoint to request format
+                    # Convert endpoint to request format (handle both dict and Endpoint object)
+                    if hasattr(endpoint, 'method'):
+                        ep_method = endpoint.method
+                        ep_path = endpoint.path
+                    else:
+                        ep_method = endpoint.get("method", "GET")
+                        ep_path = endpoint.get("path", "")
+
                     original_request = {
-                        "method": endpoint.get("method", "GET"),
-                        "path": endpoint.get("path", ""),
+                        "method": ep_method,
+                        "path": ep_path,
                         "headers": self.config.custom_headers.copy()
                     }
 
@@ -374,16 +391,21 @@ class Orchestrator:
                     bypass_count += len(bypasses)
 
                     # Get baseline response first
-                    from urllib.parse import urljoin
                     url = urljoin(self.config.url, original_request['path'])
 
                     try:
-                        baseline_resp = self.http_client.request(
-                            method=original_request['method'],
-                            url=url,
-                            headers=original_request.get('headers', {}),
-                            timeout=self.config.timeout
-                        )
+                        if original_request['method'].upper() == 'GET':
+                            baseline_resp = self.http_client.get(
+                                url,
+                                headers=original_request.get('headers', {}),
+                                timeout=self.config.timeout
+                            )
+                        else:
+                            baseline_resp = self.http_client.post(
+                                url,
+                                headers=original_request.get('headers', {}),
+                                timeout=self.config.timeout
+                            )
                         baseline_status = baseline_resp.status_code
                         baseline_text = baseline_resp.text
                     except Exception as e:
@@ -394,13 +416,57 @@ class Orchestrator:
                     for bypass in bypasses:
                         try:
                             bypass_url = urljoin(self.config.url, bypass.get('path', original_request['path']))
+                            bypass_method = bypass.get('method', original_request['method']).upper()
 
-                            bypass_resp = self.http_client.request(
-                                method=bypass.get('method', original_request['method']),
-                                url=bypass_url,
-                                headers=bypass.get('headers', {}),
-                                timeout=self.config.timeout
-                            )
+                            if bypass_method == 'GET':
+                                bypass_resp = self.http_client.get(
+                                    bypass_url,
+                                    headers=bypass.get('headers', {}),
+                                    timeout=self.config.timeout
+                                )
+                            elif bypass_method == 'POST':
+                                bypass_resp = self.http_client.post(
+                                    bypass_url,
+                                    headers=bypass.get('headers', {}),
+                                    timeout=self.config.timeout
+                                )
+                            elif bypass_method == 'PUT':
+                                bypass_resp = self.http_client.put(
+                                    bypass_url,
+                                    headers=bypass.get('headers', {}),
+                                    timeout=self.config.timeout
+                                )
+                            elif bypass_method == 'DELETE':
+                                bypass_resp = self.http_client.delete(
+                                    bypass_url,
+                                    headers=bypass.get('headers', {}),
+                                    timeout=self.config.timeout
+                                )
+                            elif bypass_method == 'HEAD':
+                                bypass_resp = self.http_client.head(
+                                    bypass_url,
+                                    headers=bypass.get('headers', {}),
+                                    timeout=self.config.timeout
+                                )
+                            elif bypass_method == 'OPTIONS':
+                                bypass_resp = self.http_client.options(
+                                    bypass_url,
+                                    headers=bypass.get('headers', {}),
+                                    timeout=self.config.timeout
+                                )
+                            elif bypass_method == 'PATCH':
+                                bypass_resp = self.http_client.patch(
+                                    bypass_url,
+                                    headers=bypass.get('headers', {}),
+                                    timeout=self.config.timeout
+                                )
+                            else:
+                                # For other methods (TRACE, PROPFIND), use GET as fallback
+                                bypass_resp = self.http_client.get(
+                                    bypass_url,
+                                    headers=bypass.get('headers', {}),
+                                    timeout=self.config.timeout
+                                )
 
                             # Check if bypass changed the response significantly
                             # Case 1: Previously blocked (401/403) now accessible
@@ -439,7 +505,7 @@ class Orchestrator:
                             continue
 
                 except Exception as e:
-                    self.logger.debug(f"Bypass test error for {endpoint.get('path')}: {str(e)}")
+                    self.logger.debug(f"Bypass test error for {ep_path}: {str(e)}")
 
             self.logger.info(f"Bypass testing: {bypass_count} variations generated and tested")
 

@@ -1,8 +1,9 @@
-"""WebSocket API scanner module."""
+"""WebSocket API scanner module with real WebSocket connection support."""
 
 import json
 import time
-from typing import Dict, List, Any
+import asyncio
+from typing import Dict, List, Any, Optional
 from urllib.parse import urlparse, urljoin
 
 from ...core.logger import Logger
@@ -11,9 +12,15 @@ from ...core.context import ScanContext, Endpoint
 from ...utils.http_client import HTTPClient
 from ...utils.validators import Validators
 
+try:
+    import websockets
+    WEBSOCKETS_AVAILABLE = True
+except ImportError:
+    WEBSOCKETS_AVAILABLE = False
+
 
 class WebSocketScanner:
-    """Scanner for WebSocket APIs."""
+    """Scanner for WebSocket APIs with real connection support."""
 
     def __init__(self, context: ScanContext = None, config: Config = None, logger: Logger = None):
         """
@@ -399,3 +406,244 @@ class WebSocketScanner:
             self.logger.debug(f"Message reflection test error: {str(e)}")
 
         return False
+
+    # ============ Real WebSocket Connection Methods ============
+
+    async def connect_websocket_async(self, ws_url: str, timeout: int = 10) -> Optional[Dict]:
+        """
+        Establish a real WebSocket connection asynchronously.
+
+        Args:
+            ws_url: WebSocket URL (ws:// or wss://)
+            timeout: Connection timeout in seconds
+
+        Returns:
+            Connection info dict or None if failed
+        """
+        if not WEBSOCKETS_AVAILABLE:
+            self.logger.warning("websockets library not available, skipping real WS connection")
+            return None
+
+        try:
+            async with websockets.connect(ws_url, open_timeout=timeout) as ws:
+                return {
+                    "connected": True,
+                    "url": ws_url,
+                    "protocol": ws.subprotocol or "unknown",
+                    "server": ws.response_headers.get("server", "unknown") if hasattr(ws, 'response_headers') else "unknown",
+                    "headers": dict(ws.response_headers) if hasattr(ws, 'response_headers') else {}
+                }
+        except asyncio.TimeoutError:
+            self.logger.debug(f"WebSocket connection timeout: {ws_url}")
+            return {"connected": False, "url": ws_url, "error": "timeout"}
+        except Exception as e:
+            self.logger.debug(f"WebSocket connection failed: {str(e)}")
+            return {"connected": False, "url": ws_url, "error": str(e)}
+
+    async def send_and_receive_async(self, ws_url: str, message: str, timeout: int = 10) -> Optional[Dict]:
+        """
+        Send a message and receive response via WebSocket.
+
+        Args:
+            ws_url: WebSocket URL
+            message: Message to send
+            timeout: Operation timeout
+
+        Returns:
+            Response info dict or None
+        """
+        if not WEBSOCKETS_AVAILABLE:
+            return None
+
+        try:
+            async with websockets.connect(ws_url, open_timeout=timeout) as ws:
+                await ws.send(message)
+                try:
+                    response = await asyncio.wait_for(ws.recv(), timeout=timeout)
+                    return {
+                        "sent": message,
+                        "received": response,
+                        "url": ws_url,
+                        "success": True
+                    }
+                except asyncio.TimeoutError:
+                    return {"sent": message, "received": None, "url": ws_url, "success": False, "error": "recv timeout"}
+        except Exception as e:
+            return {"sent": message, "received": None, "url": ws_url, "success": False, "error": str(e)}
+
+    async def test_websocket_injection_async(self, ws_url: str, payloads: List[str], timeout: int = 10) -> List[Dict]:
+        """
+        Test WebSocket for injection vulnerabilities with real connections.
+
+        Args:
+            ws_url: WebSocket URL
+            payloads: List of injection payloads
+            timeout: Operation timeout
+
+        Returns:
+            List of vulnerability findings
+        """
+        vulnerabilities = []
+
+        if not WEBSOCKETS_AVAILABLE:
+            self.logger.warning("websockets library not available")
+            return vulnerabilities
+
+        for payload in payloads:
+            try:
+                result = await self.send_and_receive_async(ws_url, payload, timeout)
+                if result and result.get("success"):
+                    response = result.get("received", "")
+
+                    # Check for SQL injection indicators
+                    if Validators.is_sql_injection(str(response), payload):
+                        vulnerabilities.append({
+                            "type": "WebSocket SQL Injection",
+                            "severity": "Critical",
+                            "url": ws_url,
+                            "payload": payload,
+                            "response": str(response)[:500],
+                            "owasp_category": "API8:2023 - Security Misconfiguration",
+                            "cwe": "CWE-89"
+                        })
+
+                    # Check for XSS reflection
+                    if payload in str(response) and any(c in payload for c in ['<', '>', '"', "'"]):
+                        vulnerabilities.append({
+                            "type": "WebSocket XSS Reflection",
+                            "severity": "High",
+                            "url": ws_url,
+                            "payload": payload,
+                            "response": str(response)[:500],
+                            "owasp_category": "API8:2023 - Security Misconfiguration",
+                            "cwe": "CWE-79"
+                        })
+
+                    # Check for command injection indicators
+                    if Validators.is_command_injection(str(response), payload):
+                        vulnerabilities.append({
+                            "type": "WebSocket Command Injection",
+                            "severity": "Critical",
+                            "url": ws_url,
+                            "payload": payload,
+                            "response": str(response)[:500],
+                            "owasp_category": "API8:2023 - Security Misconfiguration",
+                            "cwe": "CWE-78"
+                        })
+
+            except Exception as e:
+                self.logger.debug(f"WebSocket injection test error: {str(e)}")
+
+        return vulnerabilities
+
+    async def test_websocket_dos_async(self, ws_url: str, timeout: int = 10) -> List[Dict]:
+        """
+        Test WebSocket for denial of service vulnerabilities.
+
+        Args:
+            ws_url: WebSocket URL
+            timeout: Operation timeout
+
+        Returns:
+            List of vulnerability findings
+        """
+        vulnerabilities = []
+
+        if not WEBSOCKETS_AVAILABLE:
+            return vulnerabilities
+
+        try:
+            # Test 1: Large message
+            large_message = "A" * 10000000  # 10MB
+            try:
+                result = await self.send_and_receive_async(ws_url, large_message, timeout)
+                if result and result.get("success"):
+                    vulnerabilities.append({
+                        "type": "WebSocket Large Message Accepted",
+                        "severity": "Medium",
+                        "url": ws_url,
+                        "evidence": "Server accepted very large WebSocket message (10MB)",
+                        "owasp_category": "API4:2023 - Unrestricted Resource Consumption",
+                        "cwe": "CWE-770"
+                    })
+            except:
+                pass
+
+            # Test 2: Rapid messages (rate limiting)
+            async with websockets.connect(ws_url, open_timeout=timeout) as ws:
+                start_time = time.time()
+                messages_sent = 0
+
+                for _ in range(100):
+                    try:
+                        await asyncio.wait_for(ws.send("test"), timeout=1)
+                        messages_sent += 1
+                    except:
+                        break
+
+                elapsed = time.time() - start_time
+
+                if messages_sent == 100 and elapsed < 1:
+                    vulnerabilities.append({
+                        "type": "WebSocket No Rate Limiting",
+                        "severity": "Medium",
+                        "url": ws_url,
+                        "evidence": f"Server accepted {messages_sent} messages in {elapsed:.2f}s without rate limiting",
+                        "owasp_category": "API4:2023 - Unrestricted Resource Consumption",
+                        "cwe": "CWE-770"
+                    })
+
+        except Exception as e:
+            self.logger.debug(f"WebSocket DoS test error: {str(e)}")
+
+        return vulnerabilities
+
+    def run_async_tests(self, ws_url: str) -> List[Dict]:
+        """
+        Run all async WebSocket tests synchronously (wrapper).
+
+        Args:
+            ws_url: WebSocket URL to test
+
+        Returns:
+            List of vulnerability findings
+        """
+        vulnerabilities = []
+
+        if not WEBSOCKETS_AVAILABLE:
+            self.logger.warning("websockets library not installed. Install with: pip install websockets")
+            return vulnerabilities
+
+        try:
+            # Get or create event loop
+            try:
+                loop = asyncio.get_event_loop()
+            except RuntimeError:
+                loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(loop)
+
+            # Injection payloads
+            injection_payloads = [
+                '{"msg": "\' OR 1=1--"}',
+                '{"msg": "<script>alert(1)</script>"}',
+                '{"msg": "$(whoami)"}',
+                '{"msg": "{{7*7}}"}',
+                '{"data": {"$gt": ""}}',
+            ]
+
+            # Run injection tests
+            injection_vulns = loop.run_until_complete(
+                self.test_websocket_injection_async(ws_url, injection_payloads)
+            )
+            vulnerabilities.extend(injection_vulns)
+
+            # Run DoS tests
+            dos_vulns = loop.run_until_complete(
+                self.test_websocket_dos_async(ws_url)
+            )
+            vulnerabilities.extend(dos_vulns)
+
+        except Exception as e:
+            self.logger.error(f"Async WebSocket test error: {str(e)}")
+
+        return vulnerabilities
