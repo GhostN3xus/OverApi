@@ -1,6 +1,7 @@
 """Automatic API type detection module with SSL/TLS configuration."""
 
 import re
+import asyncio
 from typing import Dict, List, Tuple, Optional
 import requests
 from urllib.parse import urljoin, urlparse
@@ -53,9 +54,22 @@ class APIDetector:
             import urllib3
             urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
-    def detect(self, url: str, timeout: int = 10) -> Tuple[List[str], Dict]:
+    async def detect(self, url: str, timeout: int = 10) -> Tuple[List[str], Dict]:
         """
-        Detect API type for given URL.
+        Detect API type for given URL asynchronously (wrapper for sync method).
+
+        Args:
+            url: Target URL
+            timeout: Request timeout
+
+        Returns:
+            Tuple of (detected_types, detection_details)
+        """
+        return await asyncio.to_thread(self._detect_sync, url, timeout)
+
+    def _detect_sync(self, url: str, timeout: int = 10) -> Tuple[List[str], Dict]:
+        """
+        Detect API type for given URL (synchronous implementation).
 
         Args:
             url: Target URL

@@ -55,3 +55,4 @@ click>=8.1.0
 
 # Performance
 orjson>=3.9.0
+networkx>=3.0

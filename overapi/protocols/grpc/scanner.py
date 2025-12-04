@@ -1,5 +1,6 @@
 """gRPC API scanner module."""
 
+import asyncio
 import json
 from typing import Dict, List, Any
 from urllib.parse import urlparse
@@ -33,7 +34,10 @@ class GRPCScanner:
             custom_ca_path=custom_ca_path
         )
 
-    def discover_endpoints(self) -> List[Endpoint]:
+    async def discover_endpoints(self):
+        return await asyncio.to_thread(self._discover_endpoints_sync)
+
+    def _discover_endpoints_sync(self) -> List[Endpoint]:
         """
         Discover gRPC endpoints (standardized interface).
 

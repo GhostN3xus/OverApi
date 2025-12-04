@@ -1,4 +1,4 @@
-"""REST API scanner."""
+"""REST API scanner - Async version."""
 
 from typing import List, Dict, Any, Set
 from urllib.parse import urljoin, urlparse
@@ -12,7 +12,7 @@ from overapi.utils.wordlist_loader import WordlistLoader
 
 
 class RestScanner:
-    """Scanner for REST APIs."""
+    """Async scanner for REST APIs."""
 
     HTTP_METHODS = ["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"]
 
@@ -37,9 +37,9 @@ class RestScanner:
         )
         self.wordlist = WordlistLoader(config.wordlist)
 
-    def discover_endpoints(self) -> List[Endpoint]:
+    async def discover_endpoints(self) -> List[Endpoint]:
         """
-        Discover REST endpoints.
+        Discover REST endpoints asynchronously.
 
         Returns:
             List of discovered endpoints
@@ -48,13 +48,13 @@ class RestScanner:
 
         try:
             # Check for OpenAPI/Swagger documentation
-            swagger_endpoints = self._discover_from_swagger()
+            swagger_endpoints = await self._discover_from_swagger()
             endpoints.extend(swagger_endpoints)
             self.logger.debug(f"Discovered {len(swagger_endpoints)} endpoints from Swagger")
 
             # Wordlist-based discovery
             if self.config.enable_fuzzing:
-                wordlist_endpoints = self._discover_from_wordlist()
+                wordlist_endpoints = await self._discover_from_wordlist()
                 endpoints.extend(wordlist_endpoints)
                 self.logger.debug(f"Discovered {len(wordlist_endpoints)} endpoints from wordlist")
 
@@ -74,7 +74,7 @@ class RestScanner:
             self.logger.error(f"Endpoint discovery failed: {str(e)}")
             return endpoints
 
-    def _discover_from_swagger(self) -> List[Endpoint]:
+    async def _discover_from_swagger(self) -> List[Endpoint]:
         """
         Discover endpoints from Swagger/OpenAPI documentation.
 
@@ -96,7 +96,7 @@ class RestScanner:
         for url in swagger_urls:
             try:
                 full_url = urljoin(self.config.url, url)
-                resp = self.http_client.get(full_url)
+                resp = await self.http_client.get(full_url)
 
                 if resp.status_code == 200:
                     try:
@@ -120,7 +120,7 @@ class RestScanner:
 
         return endpoints
 
-    def _discover_from_wordlist(self) -> List[Endpoint]:
+    async def _discover_from_wordlist(self) -> List[Endpoint]:
         """
         Discover endpoints using wordlist fuzzing with wildcard detection.
 
@@ -131,7 +131,7 @@ class RestScanner:
         wordlist = self.wordlist.get_endpoints()
 
         # First, detect wildcard/catch-all behavior
-        wildcard_signature = self._get_wildcard_signature()
+        wildcard_signature = await self._get_wildcard_signature()
 
         for path in wordlist:
             try:
@@ -145,9 +145,9 @@ class RestScanner:
                 for method in ["GET", "POST"]:
                     try:
                         if method == "GET":
-                            resp = self.http_client.get(url, timeout=self.config.timeout)
+                            resp = await self.http_client.get(url)
                         else:
-                            resp = self.http_client.post(url, timeout=self.config.timeout)
+                            resp = await self.http_client.post(url)
 
                         # Check if endpoint exists (200, 401, 403, 405)
                         if resp.status_code not in [404, 501, 502, 503]:
@@ -169,7 +169,7 @@ class RestScanner:
 
         return endpoints
 
-    def _get_wildcard_signature(self) -> dict:
+    async def _get_wildcard_signature(self) -> dict:
         """
         Get signature of wildcard/catch-all responses by testing random paths.
 
@@ -186,7 +186,7 @@ class RestScanner:
             random_path = '/' + ''.join(random.choices(string.ascii_lowercase, k=20))
             try:
                 url = urljoin(self.config.url, random_path)
-                resp = self.http_client.get(url, timeout=self.config.timeout)
+                resp = await self.http_client.get(url)
 
                 if resp.status_code == 200:
                     signatures.append({

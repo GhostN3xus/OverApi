@@ -133,6 +133,18 @@ class SSRFTester:
         if proxies:
             self.session.proxies.update(proxies)
 
+    async def scan(self, test_endpoints: List[Dict[str, Any]] = None) -> List[SSRFVulnerability]:
+        """
+        Execute SSRF vulnerability scan (wrapper for test()).
+
+        Args:
+            test_endpoints: List of endpoints to test
+
+        Returns:
+            List of SSRF vulnerabilities found
+        """
+        return await self.test(test_endpoints)
+
     async def test(self, test_endpoints: List[Dict[str, Any]] = None) -> List[SSRFVulnerability]:
         """
         Execute SSRF tests on endpoints.

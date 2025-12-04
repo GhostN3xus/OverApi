@@ -1,6 +1,7 @@
 """SOAP API scanner."""
 
 from typing import List, Dict, Any
+import asyncio
 from urllib.parse import urljoin
 import xml.etree.ElementTree as ET
 import re
@@ -34,7 +35,10 @@ class SOAPScanner:
             custom_ca_path=config.custom_ca_path if config else None
         )
 
-    def discover_endpoints(self) -> List[Endpoint]:
+    async def discover_endpoints(self):
+        return await asyncio.to_thread(self._discover_endpoints_sync)
+
+    def _discover_endpoints_sync(self) -> List[Endpoint]:
         """
         Discover SOAP endpoints (standardized interface).
 

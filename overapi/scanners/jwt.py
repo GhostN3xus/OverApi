@@ -107,6 +107,19 @@ class JWTAnalyzer:
         if proxies:
             self.session.proxies.update(proxies)
 
+    async def scan(self, test_endpoints: List[Dict[str, Any]] = None) -> List[JWTVulnerability]:
+        """
+        Execute JWT vulnerability scan (wrapper for analyze()).
+
+        Args:
+            test_endpoints: List of endpoints to test
+
+        Returns:
+            List of JWT vulnerabilities found
+        """
+        result = await self.analyze(test_endpoints)
+        return result.get('vulnerabilities', [])
+
     async def analyze(self, test_endpoints: List[Dict[str, Any]] = None) -> Dict[str, Any]:
         """
         Execute comprehensive JWT analysis.

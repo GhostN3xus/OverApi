@@ -1,0 +1,82 @@
+name: OverApi CI/CD Pipeline
+
+on:
+  push:
+    branches: [ main, develop, 'claude/**' ]
+  pull_request:
+    branches: [ main, develop ]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ['3.9', '3.10', '3.11', '3.12']
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Set up Python ${{ matrix.python-version }}
+      uses: actions/setup-python@v5
+      with:
+        python-version: ${{ matrix.python-version }}
+        cache: 'pip'
+
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r requirements.txt
+        pip install pytest pytest-asyncio pytest-cov pytest-timeout black mypy pylint
+
+    - name: Run Black formatter check
+      run: |
+        black --check --diff overapi/ tests/ || echo "Black formatting issues found"
+      continue-on-error: true
+
+    - name: Run Mypy type checking
+      run: |
+        mypy overapi/ --ignore-missing-imports --no-strict-optional || echo "Mypy type issues found"
+      continue-on-error: true
+
+    - name: Run Pylint
+      run: |
+        pylint overapi/ --disable=all --enable=E,F --score=no || echo "Pylint issues found"
+      continue-on-error: true
+
+    - name: Run tests with pytest
+      run: |
+        pytest tests/ -v --tb=short --cov=overapi --cov-report=xml --cov-report=term --timeout=60
+      continue-on-error: false
+
+    - name: Upload coverage to Codecov
+      uses: codecov/codecov-action@v4
+      with:
+        file: ./coverage.xml
+        fail_ci_if_error: false
+        verbose: true
+
+  security-scan:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.11'
+
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install bandit safety
+
+    - name: Run Bandit security scanner
+      run: |
+        bandit -r overapi/ -f json -o bandit-report.json || true
+        bandit -r overapi/ || echo "Bandit found potential security issues"
+      continue-on-error: true
+
+    - name: Check for known vulnerabilities
+      run: |
+        safety check --json || echo "Safety found vulnerable dependencies"
+      continue-on-error: true

@@ -3,6 +3,7 @@
 from typing import List, Dict, Any
 from urllib.parse import urljoin
 import json
+import asyncio
 
 from ...core.logger import Logger
 from ...core.config import Config
@@ -35,9 +36,19 @@ class GraphQLScanner:
             custom_ca_path=config.custom_ca_path if config else None
         )
 
-    def discover_endpoints(self) -> List[Endpoint]:
+    async def discover_endpoints(self) -> List[Endpoint]:
         """
-        Discover GraphQL endpoints (standardized interface).
+        Discover GraphQL endpoints asynchronously (wrapper for sync method).
+
+        Returns:
+            List of discovered endpoints
+        """
+        # Temporary: wrap sync method to avoid blocking
+        return await asyncio.to_thread(self._discover_endpoints_sync)
+
+    def _discover_endpoints_sync(self) -> List[Endpoint]:
+        """
+        Discover GraphQL endpoints (synchronous implementation).
 
         Returns:
             List of discovered endpoints
