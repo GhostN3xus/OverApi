@@ -1,8 +1,11 @@
 """Enhanced security vulnerability tester with Deep Validation."""
 
 import json
+import re
 import time
-from typing import Dict, List, Any, Tuple
+import difflib
+import hashlib
+from typing import Dict, List, Any, Tuple, Optional
 from urllib.parse import urljoin
 
 from ..core.logger import Logger
@@ -37,6 +40,7 @@ class SecurityTester:
         self.vuln_db = VulnerabilityDatabase()
         self.advanced_payloads = PayloadManager()
         self.advanced_flows = AdvancedFlows(logger=self.logger)
+        self._baseline_cache = {}  # Cache for baseline responses
 
     def test_endpoint(self, endpoint: Dict, config: Config) -> List[Dict]:
         """
@@ -159,26 +163,144 @@ class SecurityTester:
             "remediation": db_info.get("remediation", "") if db_info else ""
         }
 
+    def _get_baseline_response(self, url: str, config: Config, method: str = 'GET') -> Optional[Dict]:
+        """
+        Get and cache baseline response for an endpoint.
+
+        Args:
+            url: URL to test
+            config: Configuration
+            method: HTTP method
+
+        Returns:
+            Dict with baseline response data or None
+        """
+        cache_key = hashlib.md5(f"{method}:{url}".encode()).hexdigest()
+
+        if cache_key in self._baseline_cache:
+            return self._baseline_cache[cache_key]
+
+        try:
+            if method == 'GET':
+                resp = self.http_client.get(url, timeout=config.timeout)
+            elif method == 'POST':
+                resp = self.http_client.post(url, timeout=config.timeout)
+            else:
+                return None
+
+            baseline = {
+                'status_code': resp.status_code,
+                'text': resp.text,
+                'length': len(resp.text),
+                'headers': dict(resp.headers)
+            }
+
+            self._baseline_cache[cache_key] = baseline
+            return baseline
+
+        except Exception as e:
+            self.logger.debug(f"Failed to get baseline: {str(e)}")
+            return None
+
+    def _calculate_response_similarity(self, resp1: str, resp2: str) -> float:
+        """
+        Calculate similarity ratio between two responses.
+
+        Args:
+            resp1: First response text
+            resp2: Second response text
+
+        Returns:
+            Similarity ratio (0.0 to 1.0)
+        """
+        return difflib.SequenceMatcher(None, resp1, resp2).ratio()
+
+    def _responses_are_similar(self, resp1: str, resp2: str, threshold: float = 0.95) -> bool:
+        """
+        Check if two responses are similar enough to be considered the same.
+
+        Args:
+            resp1: First response text
+            resp2: Second response text
+            threshold: Similarity threshold (default 0.95 = 95%)
+
+        Returns:
+            True if responses are similar
+        """
+        # Handle empty responses
+        if not resp1 and not resp2:
+            return True
+        if not resp1 or not resp2:
+            return False
+
+        # Length difference check - if very different, likely different
+        len_ratio = min(len(resp1), len(resp2)) / max(len(resp1), len(resp2))
+        if len_ratio < 0.5:
+            return False
+
+        # Calculate text similarity
+        similarity = self._calculate_response_similarity(resp1, resp2)
+        return similarity >= threshold
+
     def _test_broken_authentication(self, endpoint: Dict, config: Config) -> List[Dict]:
-        """Test for broken authentication."""
+        """Test for broken authentication with improved validation."""
         vulnerabilities = []
         url = urljoin(config.url, endpoint.get('path', ''))
 
         try:
             # Test without authentication
-            resp = self.http_client.get(url, timeout=config.timeout)
+            resp_unauth = self.http_client.get(url, timeout=config.timeout)
 
-            # Validation: Only report if it returns success data, not just 200 OK (could be a public page)
-            if resp.status_code in [200, 201]:
-                # Heuristic: Check for sensitive keywords
-                sensitive = ['user', 'admin', 'key', 'token', 'password', 'config']
-                if any(s in resp.text.lower() for s in sensitive):
-                    vulnerabilities.append(self._create_vulnerability_record(
-                        "Broken Authentication",
-                        "High",
-                        url,
-                        f"Endpoint accessible without authentication (Status: {resp.status_code})"
-                    ))
+            # Only report if it returns success AND contains actual sensitive data
+            if resp_unauth.status_code in [200, 201]:
+                # More sophisticated detection of sensitive data
+                response_lower = resp_unauth.text.lower()
+
+                # Check for sensitive JSON keys (not just keywords in text)
+                sensitive_json_keys = []
+                try:
+                    data = json.loads(resp_unauth.text)
+                    if isinstance(data, dict):
+                        keys = list(data.keys())
+                        sensitive_json_keys = [k for k in keys if any(
+                            s in k.lower() for s in ['password', 'secret', 'api_key', 'token', 'private']
+                        )]
+                except:
+                    pass
+
+                # Check for structured sensitive data patterns
+                has_sensitive_pattern = any([
+                    # API responses with user/admin data structures
+                    re.search(r'"(user|admin)"\s*:\s*{[^}]*"(id|email|password|token)"', response_lower),
+                    # Authentication tokens in JSON
+                    re.search(r'"(access_token|auth_token|api_key)"\s*:\s*"[^"]{20,}"', response_lower),
+                    # Admin/configuration endpoints
+                    re.search(r'"(is_admin|role)"\s*:\s*(true|"admin")', response_lower),
+                    # Private/internal configuration
+                    re.search(r'"(database|db_|config)"\s*:\s*{', response_lower),
+                ])
+
+                # Only report if we found actual sensitive structures or keys
+                if sensitive_json_keys or has_sensitive_pattern:
+                    # Additional check: verify it's not just documentation
+                    is_documentation = any([
+                        'example' in response_lower and 'api' in response_lower,
+                        'documentation' in response_lower,
+                        'swagger' in response_lower,
+                        '<html' in response_lower  # HTML documentation page
+                    ])
+
+                    if not is_documentation:
+                        evidence = f"Endpoint returns sensitive data without authentication (Status: {resp_unauth.status_code})"
+                        if sensitive_json_keys:
+                            evidence += f". Found sensitive keys: {', '.join(sensitive_json_keys[:3])}"
+
+                        vulnerabilities.append(self._create_vulnerability_record(
+                            "Broken Authentication",
+                            "High",
+                            url,
+                            evidence
+                        ))
 
         except Exception as e:
             self.logger.debug(f"Auth test error: {str(e)}")
@@ -186,32 +308,69 @@ class SecurityTester:
         return vulnerabilities
 
     def _test_bola(self, endpoint: Dict, config: Config) -> List[Dict]:
-        """Test for Broken Object Level Authorization (IDOR)."""
+        """Test for Broken Object Level Authorization (IDOR) with response comparison."""
         vulnerabilities = []
         url = urljoin(config.url, endpoint.get('path', ''))
 
         try:
             # Test ID parameter variations
-            test_ids = ['1', '2', '999', '-1', '0']
+            test_ids = ['1', '2', '999', '12345', '-1']
 
-            # Identify ID parameters in URL
-            # Simple heuristic: Look for numeric values in path
-            # TODO: Improve this with parsing
+            # Identify ID parameters in URL or query string
+            has_id_param = any(param in url.lower() for param in ['{id}', '{user_id}', '{userid}', 'id='])
 
-            if '{id}' in url:
+            if has_id_param or re.search(r'/\d+/?$', url):
+                responses = {}
+
+                # Collect responses for different IDs
                 for test_id in test_ids:
-                    test_url = url.replace('{id}', test_id)
-                    resp = self.http_client.get(test_url, timeout=config.timeout)
+                    try:
+                        # Replace various ID patterns
+                        test_url = url
+                        test_url = test_url.replace('{id}', test_id)
+                        test_url = test_url.replace('{user_id}', test_id)
+                        test_url = test_url.replace('{userId}', test_id)
+                        test_url = re.sub(r'/\d+/?$', f'/{test_id}', test_url)
 
-                    if resp.status_code in [200, 201]:
-                        # Validation: Check if response size/content varies significantly
+                        resp = self.http_client.get(test_url, timeout=config.timeout)
+
+                        if resp.status_code in [200, 201]:
+                            responses[test_id] = {
+                                'text': resp.text,
+                                'length': len(resp.text),
+                                'status': resp.status_code
+                            }
+
+                    except Exception as e:
+                        self.logger.debug(f"BOLA ID test error for {test_id}: {str(e)}")
+                        continue
+
+                # Analyze responses - if we get different content for different IDs, it's BOLA
+                if len(responses) >= 2:
+                    response_list = list(responses.values())
+                    first_resp = response_list[0]
+                    different_responses = 0
+
+                    for resp in response_list[1:]:
+                        # Check if responses are significantly different
+                        if not self._responses_are_similar(first_resp['text'], resp['text'], threshold=0.9):
+                            different_responses += 1
+
+                    # If we got different data for different IDs, it's likely BOLA
+                    # But verify it's not just a "not found" vs "found" scenario
+                    has_valid_data = any(
+                        len(r['text']) > 50 and r['text'] != first_resp['text']
+                        for r in response_list
+                    )
+
+                    if different_responses > 0 and has_valid_data:
                         vulnerabilities.append(self._create_vulnerability_record(
-                            "BOLA",
+                            "BOLA (Broken Object Level Authorization)",
                             "High",
-                            test_url,
-                            f"Object accessible with different ID (Status: {resp.status_code})"
+                            url,
+                            f"Endpoint returns different user/object data for different IDs without authorization check. "
+                            f"Tested {len(responses)} IDs, {different_responses + 1} returned different data."
                         ))
-                        break
 
         except Exception as e:
             self.logger.debug(f"BOLA test error: {str(e)}")
@@ -232,33 +391,84 @@ class SecurityTester:
                 self.logger.debug(f"Baseline request failed: {str(e)}")
                 baseline_data = {}
 
-            # SQL Injection
-            # Use advanced payloads in addition to/instead of basic ones
+            # SQL Injection - Error-based and Time-based
             sqli_payloads = self.advanced_payloads.get_sqli_payloads()
-            for payload in sqli_payloads[:5]:  # Limit payloads for perf
-                try:
-                    # Determine where to inject (params)
-                    # For now assume 'id' or 'search' if not specified
-                    params = {"id": payload, "q": payload, "search": payload}
-                    resp = self.http_client.get(url, params=params, timeout=config.timeout)
 
-                    if Validators.is_sql_injection(resp.text, payload):
-                        # Verify
-                        if self._verify_vulnerability(
-                            {'baseline_response': baseline_data},
-                            {'text': resp.text, 'status_code': resp.status_code},
-                            'sqli'
-                        ):
+            # Test with error-based payloads first (faster)
+            error_based_payloads = [p for p in sqli_payloads if "'" in p or '"' in p][:5]
+
+            for payload in error_based_payloads:
+                try:
+                    # Try common parameter names
+                    param_names = ["id", "user_id", "q", "search", "filter"]
+
+                    for param_name in param_names:
+                        params = {param_name: payload}
+                        start_time = time.time()
+                        resp = self.http_client.get(url, params=params, timeout=config.timeout)
+                        response_time = time.time() - start_time
+
+                        # Check for SQL errors in response
+                        if Validators.is_sql_injection(resp.text, payload, response_time):
+                            # Verify it's different from baseline
+                            if baseline_data and not self._responses_are_similar(
+                                baseline_data.get('text', ''),
+                                resp.text,
+                                threshold=0.95
+                            ):
+                                # Extract specific error message for evidence
+                                error_match = re.search(
+                                    r'(SQL syntax|mysql|postgresql|ORA-\d+|syntax error)[^\n]{0,100}',
+                                    resp.text,
+                                    re.IGNORECASE
+                                )
+                                error_detail = error_match.group(0) if error_match else "SQL error detected"
+
+                                vulnerabilities.append(self._create_vulnerability_record(
+                                    "SQL Injection",
+                                    "Critical",
+                                    url,
+                                    f"SQL error-based injection in parameter '{param_name}': {error_detail}",
+                                    payload
+                                ))
+                                break  # Stop testing this endpoint
+
+                        # Short delay between parameter tests
+                        time.sleep(0.1)
+
+                    if vulnerabilities:
+                        break  # Already found SQLi
+
+                except Exception as e:
+                    self.logger.debug(f"SQLi test error: {str(e)}")
+
+            # If no error-based SQLi found, try time-based blind SQLi (only 2 payloads)
+            if not vulnerabilities and len(sqli_payloads) > 5:
+                time_based_payloads = [
+                    "1' AND SLEEP(5)--",
+                    "1'; WAITFOR DELAY '0:0:5'--"
+                ]
+
+                for payload in time_based_payloads:
+                    try:
+                        params = {"id": payload}
+                        start_time = time.time()
+                        resp = self.http_client.get(url, params=params, timeout=10)
+                        response_time = time.time() - start_time
+
+                        # If response took significantly longer (>4 seconds), likely time-based SQLi
+                        if response_time > 4.5:
                             vulnerabilities.append(self._create_vulnerability_record(
-                                "SQL Injection",
+                                "SQL Injection (Time-based Blind)",
                                 "Critical",
                                 url,
-                                "SQL syntax error or unexpected behavior detected",
+                                f"Time-based blind SQL injection detected. Response delayed by {response_time:.2f}s",
                                 payload
                             ))
                             break
-                except Exception as e:
-                    self.logger.debug(f"SQLi test error: {str(e)}")
+
+                    except Exception as e:
+                        self.logger.debug(f"Time-based SQLi test error: {str(e)}")
 
             # XSS
             xss_payloads = self.advanced_payloads.get_xss_payloads()
@@ -320,27 +530,45 @@ class SecurityTester:
         return vulnerabilities
 
     def _test_rate_limiting(self, endpoint: Dict, config: Config) -> List[Dict]:
-        """Test for lack of rate limiting."""
+        """Test for lack of rate limiting with aggressive testing."""
         vulnerabilities = []
         url = urljoin(config.url, endpoint.get('path', ''))
 
         if config.enable_ratelimit_tests:
             try:
-                # Make rapid requests
+                # Make rapid requests - 30 requests with minimal delay
                 rate_limited = False
-                for i in range(15):
-                    resp = self.http_client.get(url, timeout=config.timeout)
-                    if Validators.is_rate_limited(resp.status_code, resp.headers):
-                        rate_limited = True
-                        break
-                    time.sleep(0.05)
+                success_count = 0
 
-                if not rate_limited:
+                for i in range(30):
+                    try:
+                        resp = self.http_client.get(url, timeout=config.timeout)
+
+                        # Check if rate limited
+                        if Validators.is_rate_limited(resp.status_code, resp.headers):
+                            rate_limited = True
+                            break
+
+                        # Count successful responses
+                        if resp.status_code in [200, 201]:
+                            success_count += 1
+
+                        # Very short delay (100 req/sec)
+                        time.sleep(0.01)
+
+                    except Exception as e:
+                        # Network errors don't indicate rate limiting
+                        self.logger.debug(f"Request {i} failed: {str(e)}")
+                        continue
+
+                # Only report if we successfully made many requests without rate limiting
+                if not rate_limited and success_count >= 20:
                     vulnerabilities.append(self._create_vulnerability_record(
                         "Lack of Rate Limiting",
                         "Medium",
                         url,
-                        "No 429 status or rate limit headers after multiple rapid requests"
+                        f"No rate limiting detected after {success_count} rapid requests (100 req/sec). "
+                        f"Endpoint may be vulnerable to brute force or DoS attacks."
                     ))
 
             except Exception as e:
@@ -349,45 +577,47 @@ class SecurityTester:
         return vulnerabilities
 
     def _test_token_validation(self, endpoint: Dict, config: Config) -> List[Dict]:
-        """Test for weak API key/token validation."""
+        """Test for weak API key/token validation with improved detection."""
         vulnerabilities = []
         url = urljoin(config.url, endpoint.get('path', ''))
 
         try:
-            # Test 1: Invalid token
-            invalid_tokens = ["invalid", "test123", "x" * 50, ""]
+            # First, establish baseline - check if endpoint normally requires auth
+            resp_no_auth = self.http_client.get(url, timeout=config.timeout)
 
-            for token in invalid_tokens:
-                try:
-                    headers = {"Authorization": f"Bearer {token}"}
-                    resp = self.http_client.get(url, headers=headers, timeout=config.timeout)
+            # If endpoint is publicly accessible (200/201 without auth), it doesn't require token validation
+            # This is normal for public endpoints, not a vulnerability
+            if resp_no_auth.status_code in [200, 201]:
+                # Skip token validation tests for public endpoints
+                return vulnerabilities
 
-                    if resp.status_code in [200, 201]:
-                        vulnerabilities.append(self._create_vulnerability_record(
-                            "Weak Token Validation",
-                            "High",
-                            url,
-                            f"Invalid token accepted: {token}"
-                        ))
-                        break
+            # If we get 401/403, endpoint requires authentication - test token validation
+            if resp_no_auth.status_code in [401, 403]:
+                baseline_unauth_response = resp_no_auth.text
 
-                except Exception as e:
-                    self.logger.debug(f"Invalid token test error: {str(e)}")
+                # Test with invalid tokens
+                invalid_tokens = ["invalid", "test123", "x" * 50, "Bearer invalid"]
 
-            # Test 2: Missing token
-            try:
-                resp_no_auth = self.http_client.get(url, timeout=config.timeout)
+                for token in invalid_tokens:
+                    try:
+                        headers = {"Authorization": f"Bearer {token}" if not token.startswith("Bearer") else token}
+                        resp_invalid = self.http_client.get(url, headers=headers, timeout=config.timeout)
 
-                if resp_no_auth.status_code in [200, 201]:
-                    vulnerabilities.append(self._create_vulnerability_record(
-                        "Missing Authentication",
-                        "High",
-                        url,
-                        "Endpoint accessible without authentication"
-                    ))
+                        # If invalid token gives 200/201, that's weak validation
+                        if resp_invalid.status_code in [200, 201]:
+                            # Verify response is different from unauthenticated request
+                            if not self._responses_are_similar(baseline_unauth_response, resp_invalid.text):
+                                vulnerabilities.append(self._create_vulnerability_record(
+                                    "Weak Token Validation",
+                                    "High",
+                                    url,
+                                    f"Endpoint accepts invalid authentication token and returns data. "
+                                    f"Expected 401/403 but got {resp_invalid.status_code}"
+                                ))
+                                break
 
-            except Exception as e:
-                self.logger.debug(f"Missing token test error: {str(e)}")
+                    except Exception as e:
+                        self.logger.debug(f"Invalid token test error: {str(e)}")
 
         except Exception as e:
             self.logger.debug(f"Token validation test error: {str(e)}")

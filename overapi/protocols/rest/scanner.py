@@ -122,13 +122,16 @@ class RestScanner:
 
     def _discover_from_wordlist(self) -> List[Endpoint]:
         """
-        Discover endpoints using wordlist fuzzing.
+        Discover endpoints using wordlist fuzzing with wildcard detection.
 
         Returns:
             List of endpoints
         """
         endpoints = []
         wordlist = self.wordlist.get_endpoints()
+
+        # First, detect wildcard/catch-all behavior
+        wildcard_signature = self._get_wildcard_signature()
 
         for path in wordlist:
             try:
@@ -147,16 +150,16 @@ class RestScanner:
                             resp = self.http_client.post(url, timeout=self.config.timeout)
 
                         # Check if endpoint exists (200, 401, 403, 405)
-                        # 404 usually means not found.
-                        # 5xx might be interesting but maybe not "discovered" in the sense of existing endpoint to test further unless we want to fuzz error handling.
                         if resp.status_code not in [404, 501, 502, 503]:
-                            endpoints.append(Endpoint(
-                                path=path,
-                                method=method
-                            ))
-                            # If we found it with GET, maybe no need to check POST for discovery unless specific need
-                            if method == "GET":
-                                break
+                            # Verify it's not a wildcard match
+                            if not self._is_wildcard_match(resp, wildcard_signature):
+                                endpoints.append(Endpoint(
+                                    path=path,
+                                    method=method
+                                ))
+                                # If we found it with GET, maybe no need to check POST
+                                if method == "GET":
+                                    break
 
                     except Exception:
                         pass
@@ -165,3 +168,68 @@ class RestScanner:
                 self.logger.debug(f"Error testing path {path}: {str(e)}")
 
         return endpoints
+
+    def _get_wildcard_signature(self) -> dict:
+        """
+        Get signature of wildcard/catch-all responses by testing random paths.
+
+        Returns:
+            Dict with wildcard signature (status, length, content_type)
+        """
+        import random
+        import string
+
+        # Test 3 random paths that likely don't exist
+        signatures = []
+
+        for _ in range(3):
+            random_path = '/' + ''.join(random.choices(string.ascii_lowercase, k=20))
+            try:
+                url = urljoin(self.config.url, random_path)
+                resp = self.http_client.get(url, timeout=self.config.timeout)
+
+                if resp.status_code == 200:
+                    signatures.append({
+                        'status': resp.status_code,
+                        'length': len(resp.text),
+                        'content_type': resp.headers.get('Content-Type', ''),
+                        'text': resp.text[:500]  # First 500 chars for comparison
+                    })
+            except Exception:
+                pass
+
+        # If all 3 random paths returned similar 200 responses, it's a wildcard
+        if len(signatures) == 3:
+            # Check if all signatures are similar
+            first_sig = signatures[0]
+            all_similar = all(
+                abs(sig['length'] - first_sig['length']) < 100 and
+                sig['status'] == first_sig['status']
+                for sig in signatures
+            )
+
+            if all_similar:
+                return first_sig
+
+        return {}
+
+    def _is_wildcard_match(self, response, wildcard_signature: dict) -> bool:
+        """
+        Check if response matches wildcard signature.
+
+        Args:
+            response: HTTP response
+            wildcard_signature: Signature from _get_wildcard_signature
+
+        Returns:
+            True if response matches wildcard pattern
+        """
+        if not wildcard_signature:
+            return False
+
+        # Check if response is similar to wildcard signature
+        return (
+            response.status_code == wildcard_signature['status'] and
+            abs(len(response.text) - wildcard_signature['length']) < 100 and
+            response.headers.get('Content-Type', '') == wildcard_signature['content_type']
+        )
